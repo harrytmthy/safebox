@@ -1,0 +1,22 @@
+#!/bin/bash
+
+cd "$(git rev-parse --show-toplevel)" || exit
+
+set -e
+
+# Capture the current diff before spotless
+BEFORE_SPOTLESS=$(git diff)
+
+# Run spotlessApply
+echo "Running spotless..."
+./gradlew spotlessApply --init-script gradle/init.gradle.kts --no-configuration-cache -quiet
+
+# Capture the new diff after spotless
+AFTER_SPOTLESS=$(git diff)
+
+if [ "$BEFORE_SPOTLESS" != "$AFTER_SPOTLESS" ]; then
+  echo "Spotless made changes. Please re-commit."
+  exit 1
+fi
+
+exit 0
