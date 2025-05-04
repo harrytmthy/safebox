@@ -29,3 +29,4 @@ rootProject.name = "safebox-root"
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 include(":app")
+include(":safebox")
