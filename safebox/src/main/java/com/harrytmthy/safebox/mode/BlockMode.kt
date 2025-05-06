@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-package com.harrytmthy.safebox.extensions
+package com.harrytmthy.safebox.mode
 
-import com.harrytmthy.safebox.mode.AesMode
-import com.harrytmthy.safebox.storage.Bytes
-import javax.crypto.SecretKey
-
-internal fun requireAes(key: SecretKey) {
-    require(key.algorithm == AesMode.ALGORITHM) { "Only AES keys are supported" }
-}
-
-internal fun ByteArray.toBytes(): Bytes = Bytes(this)
+/**
+ * Marker interface for block cipher configurations. Implementations define encryption behavior,
+ * including block mode, padding, IV size, and algorithm parameter specification.
+ *
+ * Currently implemented by [AesMode], but designed for future extensibility
+ * (e.g. ChaChaMode, RSA-OAEP, etc).
+ */
+public sealed interface BlockMode

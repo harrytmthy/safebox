@@ -14,14 +14,22 @@
  * limitations under the License.
  */
 
-package com.harrytmthy.safebox.extensions
+package com.harrytmthy.safebox.cryptography
 
-import com.harrytmthy.safebox.mode.AesMode
-import com.harrytmthy.safebox.storage.Bytes
-import javax.crypto.SecretKey
+import java.security.SecureRandom
 
-internal fun requireAes(key: SecretKey) {
-    require(key.algorithm == AesMode.ALGORITHM) { "Only AES keys are supported" }
+/**
+ * Generates cryptographically secure IVs.
+ */
+public object IvProvider {
+
+    private val secureRandom = SecureRandom()
+
+    /**
+     * Generates a new IV of the specified size in bytes.
+     *
+     * @param size The size of the IV in bytes.
+     * @return A randomly generated IV.
+     */
+    fun generate(size: Int): ByteArray = ByteArray(size).also(secureRandom::nextBytes)
 }
-
-internal fun ByteArray.toBytes(): Bytes = Bytes(this)

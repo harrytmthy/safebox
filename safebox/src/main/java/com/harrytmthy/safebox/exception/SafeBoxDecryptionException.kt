@@ -14,14 +14,19 @@
  * limitations under the License.
  */
 
-package com.harrytmthy.safebox.extensions
+package com.harrytmthy.safebox.exception
 
-import com.harrytmthy.safebox.mode.AesMode
-import com.harrytmthy.safebox.storage.Bytes
-import javax.crypto.SecretKey
+import java.security.GeneralSecurityException
 
-internal fun requireAes(key: SecretKey) {
-    require(key.algorithm == AesMode.ALGORITHM) { "Only AES keys are supported" }
+/**
+ * Thrown when SafeBox fails to decrypt data, typically due to tampering or an AAD mismatch.
+ * Indicates that ciphertext integrity could not be verified or decrypted properly.
+ */
+public class SafeBoxDecryptionException(
+    message: String = DEFAULT_MESSAGE,
+) : GeneralSecurityException(message) {
+
+    private companion object {
+        const val DEFAULT_MESSAGE = "Data may be corrupted or unverifiable."
+    }
 }
-
-internal fun ByteArray.toBytes(): Bytes = Bytes(this)
