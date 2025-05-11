@@ -1,0 +1,43 @@
+#!/bin/bash
+
+set -e
+
+cd "$(git rev-parse --show-toplevel)" || exit
+
+# Run spotlessCheck
+echo "Running spotless..."
+./gradlew spotlessCheck --init-script gradle/init.gradle.kts --no-configuration-cache
+if [ $? -ne 0 ]; then
+  echo "Spotless check failed. Please run below command:"
+  echo "./gradlew spotlessCheck --init-script gradle/init.gradle.kts --no-configuration-cache"
+  exit 1
+fi
+
+# Run lint
+echo "Running lint (initial)..."
+if ! ./gradlew lint --quiet; then
+  echo "Lint failed, retrying with clean..."
+  ./gradlew clean --no-configuration-cache
+  ./gradlew lint --quiet || {
+    echo "Lint still failed after clean. Fix lint issues."
+    exit 1
+  }
+fi
+
+# Run unit tests
+echo "Running unit tests..."
+./gradlew testDebugUnitTest --quiet
+if [ $? -ne 0 ]; then
+  echo "Unit tests failed. Fix them before pushing."
+  exit 1
+fi
+
+# Run instrumented tests
+echo "Running instrumented tests..."
+./gradlew connectedAndroidTest --quiet
+if [ $? -ne 0 ]; then
+  echo "Instrumented tests failed. Fix them before pushing."
+  exit 1
+fi
+
+exit 0
