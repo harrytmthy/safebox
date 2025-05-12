@@ -18,25 +18,27 @@ package com.harrytmthy.safebox.cryptography
 
 import com.harrytmthy.safebox.exception.SafeBoxDecryptionException
 import com.harrytmthy.safebox.extensions.requireAes
+import com.harrytmthy.safebox.keystore.KeyProvider
 import com.harrytmthy.safebox.mode.AesMode
+import com.harrytmthy.safebox.mode.AesMode.Cbc
 import com.harrytmthy.safebox.mode.AesMode.Gcm
 import java.security.GeneralSecurityException
 import javax.crypto.Cipher
-import javax.crypto.SecretKey
 
 /**
  * AES cipher provider supporting both CBC and GCM block modes.
  *
  * Uses a supplied [AesMode] to dynamically configure encryption and decryption behavior.
  * GCM mode includes optional AAD binding for integrity protection.
- *
- * @param aesMode The selected AES block mode (CBC or GCM).
  */
-public class AesCipherProvider(private val aesMode: AesMode) : CipherProvider {
+public class AesCipherProvider(
+    private val aesMode: AesMode,
+    private val keyProvider: KeyProvider,
+) : CipherProvider {
 
-    override fun encrypt(plaintext: ByteArray, key: SecretKey): ByteArray {
+    override fun encrypt(plaintext: ByteArray): ByteArray {
+        val key = keyProvider.getOrCreateKey()
         requireAes(key)
-
         val iv = IvProvider.generate(aesMode.ivSize)
         val cipher = Cipher.getInstance(aesMode.transformation)
         val spec = aesMode.getParameterSpec(iv)
@@ -45,12 +47,22 @@ public class AesCipherProvider(private val aesMode: AesMode) : CipherProvider {
             aesMode.aad?.let(cipher::updateAAD)
         }
         val actualData = cipher.doFinal(plaintext)
-        return iv + actualData
+        val ciphertext = iv + actualData
+        return if (aesMode is Cbc) {
+            aesMode.integrityVerifier.attachMac(key, ciphertext)
+        } else {
+            ciphertext
+        }
     }
 
-    override fun decrypt(ciphertext: ByteArray, key: SecretKey): ByteArray {
+    override fun decrypt(ciphertext: ByteArray): ByteArray {
+        val key = keyProvider.getOrCreateKey()
         requireAes(key)
-
+        val ciphertext = if (aesMode is Cbc) {
+            aesMode.integrityVerifier.verifyMac(key, ciphertext)
+        } else {
+            ciphertext
+        }
         val iv = ciphertext.copyOfRange(0, aesMode.ivSize)
         val actualData = ciphertext.copyOfRange(aesMode.ivSize, ciphertext.size)
         return try {

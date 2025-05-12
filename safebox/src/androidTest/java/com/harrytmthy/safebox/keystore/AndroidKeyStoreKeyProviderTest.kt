@@ -23,20 +23,20 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 @RunWith(AndroidJUnit4::class)
-class AndroidKeyStoreStrategyTest {
+class AndroidKeyStoreKeyProviderTest {
 
     @Test
     fun getOrCreateKey_shouldReturnValidAesKey() {
-        val strategy = AndroidKeyStoreStrategy.create(AesMode.Gcm(), "TestAlias")
-        val key = strategy.getOrCreateKey()
+        val keyProvider = AndroidKeyStoreKeyProvider(AesMode.Gcm(), "TestAlias")
+        val key = keyProvider.getOrCreateKey()
         assertEquals("AES", key.algorithm)
     }
 
     @Test
     fun getOrCreateKey_shouldReturnTheSameKeyAcrossInvocations() {
-        val strategy = AndroidKeyStoreStrategy.create(AesMode.Gcm(), "TestAlias")
-        val first = strategy.getOrCreateKey()
-        val second = strategy.getOrCreateKey()
+        val keyProvider = AndroidKeyStoreKeyProvider(AesMode.Gcm(), "TestAlias")
+        val first = keyProvider.getOrCreateKey()
+        val second = keyProvider.getOrCreateKey()
         assertEquals(first, second)
     }
 }

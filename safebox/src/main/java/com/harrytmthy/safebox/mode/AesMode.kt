@@ -20,6 +20,8 @@ import android.security.keystore.KeyProperties.BLOCK_MODE_CBC
 import android.security.keystore.KeyProperties.BLOCK_MODE_GCM
 import android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE
 import android.security.keystore.KeyProperties.ENCRYPTION_PADDING_PKCS7
+import com.harrytmthy.safebox.verifier.DefaultMacIntegrityVerifier
+import com.harrytmthy.safebox.verifier.IntegrityVerifier
 import java.security.spec.AlgorithmParameterSpec
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.IvParameterSpec
@@ -50,8 +52,17 @@ public sealed class AesMode : BlockMode {
 
     /**
      * AES-CBC configuration using PKCS7 padding and 16-byte IV.
+     *
+     * This mode does not provide built-in authentication, so an [IntegrityVerifier] is required
+     * to attach and validate a MAC (Message Authentication Code) for integrity assurance.
+     *
+     * @param padding The padding scheme to use (default: PKCS7).
+     * @param integrityVerifier Computes and verifies message integrity (default: HMAC-SHA256).
      */
-    public data class Cbc(override val padding: String = ENCRYPTION_PADDING_PKCS7) : AesMode() {
+    public data class Cbc(
+        override val padding: String = ENCRYPTION_PADDING_PKCS7,
+        val integrityVerifier: IntegrityVerifier = DefaultMacIntegrityVerifier,
+    ) : AesMode() {
         override val name: String = BLOCK_MODE_CBC
         override val ivSize: Int = CBC_IV_SIZE
 
@@ -68,7 +79,8 @@ public sealed class AesMode : BlockMode {
         override val padding: String = ENCRYPTION_PADDING_NONE
         override val ivSize: Int = GCM_IV_SIZE
 
-        override fun getParameterSpec(iv: ByteArray): AlgorithmParameterSpec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
+        override fun getParameterSpec(iv: ByteArray): AlgorithmParameterSpec =
+            GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
 
         override fun equals(other: Any?): Boolean {
             if (this === other) return true

@@ -22,7 +22,7 @@ import javax.crypto.SecretKey
  * Provides symmetric encryption keys for SafeBox. Implementations may source keys from
  * AndroidKeyStore or other secure mechanisms.
  */
-public interface KeyStrategy {
+public interface KeyProvider {
 
     /**
      * Returns the encryption key for SafeBox usage. Implementations must ensure the key is created

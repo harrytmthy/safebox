@@ -17,6 +17,7 @@
 package com.harrytmthy.safebox.cryptography
 
 import com.harrytmthy.safebox.exception.SafeBoxDecryptionException
+import com.harrytmthy.safebox.keystore.KeyProvider
 import com.harrytmthy.safebox.mode.AesMode
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -27,62 +28,59 @@ import kotlin.test.assertFailsWith
 
 class AesCipherProviderTest {
 
-    private val aesKey: SecretKey = generateAesKey()
+    private val keyProvider = object : KeyProvider {
 
-    private val aad = "SafeBoxAAD".toByteArray()
+        private var key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+
+        fun setKey(key: SecretKey) {
+            this.key = key
+        }
+
+        override fun getOrCreateKey(): SecretKey = key
+    }
 
     @Test
     fun `CBC encrypt-decrypt returns original plaintext`() {
-        val provider = AesCipherProvider(AesMode.Cbc("PKCS5Padding"))
+        val provider = AesCipherProvider(AesMode.Cbc("PKCS5Padding"), keyProvider)
         val plaintext = "Hello CBC".toByteArray()
-        val encrypted = provider.encrypt(plaintext, aesKey)
-        val decrypted = provider.decrypt(encrypted, aesKey)
+        val encrypted = provider.encrypt(plaintext)
+        val decrypted = provider.decrypt(encrypted)
         assertContentEquals(plaintext, decrypted)
     }
 
     @Test
     fun `GCM encrypt-decrypt with AAD returns original plaintext`() {
-        val provider = AesCipherProvider(AesMode.Gcm(aad))
+        val provider = AesCipherProvider(AesMode.Gcm("SafeBoxAAD".toByteArray()), keyProvider)
         val plaintext = "Hello GCM".toByteArray()
-        val encrypted = provider.encrypt(plaintext, aesKey)
-        val decrypted = provider.decrypt(encrypted, aesKey)
+        val encrypted = provider.encrypt(plaintext)
+        val decrypted = provider.decrypt(encrypted)
         assertContentEquals(plaintext, decrypted)
     }
 
     @Test
     fun `GCM decrypt with tampered ciphertext throws SafeBoxDecryptionException`() {
-        val provider = AesCipherProvider(AesMode.Gcm(aad))
+        val provider = AesCipherProvider(AesMode.Gcm("SafeBoxAAD".toByteArray()), keyProvider)
         val plaintext = "Tamper me".toByteArray()
-        val encrypted = provider.encrypt(plaintext, aesKey)
+        val encrypted = provider.encrypt(plaintext)
         val tampered = encrypted.copyOf()
         tampered[4] = (tampered[4].toInt() xor 0xFF).toByte()
-        assertFailsWith<SafeBoxDecryptionException> {
-            provider.decrypt(tampered, aesKey)
-        }
+        assertFailsWith<SafeBoxDecryptionException> { provider.decrypt(tampered) }
     }
 
     @Test
     fun `encrypt with non-AES key throws`() {
-        val provider = AesCipherProvider(AesMode.Cbc("PKCS5Padding"))
-        val fakeKey = generateFakeKey()
-        assertFailsWith<IllegalArgumentException> {
-            provider.encrypt("bad".toByteArray(), fakeKey)
-        }
+        keyProvider.setKey(generateFakeKey())
+        val provider = AesCipherProvider(AesMode.Cbc("PKCS5Padding"), keyProvider)
+        assertFailsWith<IllegalArgumentException> { provider.encrypt("bad".toByteArray()) }
     }
 
     @Test
     fun `decrypt with non-AES key throws`() {
-        val provider = AesCipherProvider(AesMode.Cbc("PKCS5Padding"))
-        val fakeKey = generateFakeKey()
-        val data = provider.encrypt("hello".toByteArray(), aesKey)
-        assertFailsWith<IllegalArgumentException> {
-            provider.decrypt(data, fakeKey)
-        }
+        val provider = AesCipherProvider(AesMode.Cbc("PKCS5Padding"), keyProvider)
+        val data = provider.encrypt("hello".toByteArray())
+        keyProvider.setKey(generateFakeKey())
+        assertFailsWith<IllegalArgumentException> { provider.decrypt(data) }
     }
-
-    private fun generateAesKey(): SecretKey = KeyGenerator.getInstance("AES")
-        .apply { init(256) }
-        .generateKey()
 
     private fun generateFakeKey(): SecretKey = SecretKeySpec(ByteArray(16), "Blowfish")
 }

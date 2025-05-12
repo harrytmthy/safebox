@@ -25,7 +25,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
 /**
- * A [KeyStrategy] implementation backed by AndroidKeyStore.
+ * A [KeyProvider] implementation backed by AndroidKeyStore.
  *
  * This strategy securely generates and retrieves symmetric AES keys tied to a given alias.
  * It configures the key based on the specified [AesMode], ensuring compatibility with the
@@ -38,14 +38,11 @@ import javax.crypto.SecretKey
  * **Note:**
  * - Requires minSdk 23 due to AndroidKeyStore AES support.
  * - Must use a block mode and padding compatible with AndroidKeyStore (e.g. GCM or CBC).
- *
- * @param mode The AES block mode configuration used to generate a compatible key.
- * @param alias The AndroidKeyStore alias under which the key is stored.
  */
-public class AndroidKeyStoreStrategy private constructor(
+public class AndroidKeyStoreKeyProvider(
     private val mode: AesMode,
     private val alias: String,
-) : KeyStrategy {
+) : KeyProvider {
 
     override fun getOrCreateKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -65,10 +62,7 @@ public class AndroidKeyStoreStrategy private constructor(
         }
     }
 
-    public companion object {
-        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-
-        @JvmStatic
-        public fun create(mode: AesMode, alias: String): AndroidKeyStoreStrategy = AndroidKeyStoreStrategy(mode, alias)
+    private companion object {
+        const val ANDROID_KEYSTORE = "AndroidKeyStore"
     }
 }
