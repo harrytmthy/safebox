@@ -16,6 +16,7 @@
 
 package com.harrytmthy.safebox.storage
 
+import android.content.Context
 import androidx.annotation.VisibleForTesting
 import com.harrytmthy.safebox.extensions.toBytes
 import kotlinx.coroutines.sync.Mutex
@@ -34,7 +35,7 @@ import java.nio.channels.FileChannel
  * Keys and values are stored as length-prefixed byte sequences:
  * [keyLength:Short][valueLength:Int][keyBytes:ByteArray][valueBytes:ByteArray]
  */
-internal class SafeBoxBlobStore(file: File) {
+internal class SafeBoxBlobStore(context: Context, fileName: String) {
 
     private val channel: FileChannel
     private val buffer: MappedByteBuffer
@@ -49,6 +50,7 @@ internal class SafeBoxBlobStore(file: File) {
         get() = entryMetaByKey.values.lastOrNull()?.run { offset + size } ?: 0
 
     init {
+        val file = File(context.filesDir, "$fileName.bin")
         if (!file.exists()) file.createNewFile()
         val raf = RandomAccessFile(file, "rw")
         channel = raf.channel
@@ -146,14 +148,14 @@ internal class SafeBoxBlobStore(file: File) {
         value: ByteArray,
         offset: Int = nextWritePosition,
     ) {
-        val entrySize = HEADER_SIZE + realKey.key.size + value.size
+        val entrySize = HEADER_SIZE + realKey.value.size + value.size
         if (offset + entrySize > buffer.capacity()) {
             error("Cannot write at offset. Not enough buffer capacity.")
         }
         buffer.position(offset)
-        buffer.putShort(realKey.key.size.toShort())
+        buffer.putShort(realKey.value.size.toShort())
         buffer.putInt(value.size)
-        buffer.put(realKey.key)
+        buffer.put(realKey.value)
         buffer.put(value)
         buffer.force()
         entryMetaByKey[realKey] = EntryMeta(offset, entrySize)
@@ -161,7 +163,7 @@ internal class SafeBoxBlobStore(file: File) {
 
     private fun overwrite(realKey: Bytes, value: ByteArray) {
         val entry = entryMetaByKey.getValue(realKey)
-        val newSize = HEADER_SIZE + realKey.key.size + value.size
+        val newSize = HEADER_SIZE + realKey.value.size + value.size
         if (newSize == entry.size) {
             writeAtOffset(realKey, value, entry.offset)
             return

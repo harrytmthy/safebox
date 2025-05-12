@@ -16,14 +16,14 @@
 
 package com.harrytmthy.safebox.storage
 
-internal data class Bytes(val key: ByteArray) {
+internal data class Bytes(val value: ByteArray) {
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
         other as Bytes
-        return key.contentEquals(other.key)
+        return value.contentEquals(other.value)
     }
 
-    override fun hashCode() = key.contentHashCode()
+    override fun hashCode() = value.contentHashCode()
 }
