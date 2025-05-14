@@ -16,12 +16,13 @@
 
 package com.harrytmthy.safebox.extensions
 
-import com.harrytmthy.safebox.mode.AesMode
-import com.harrytmthy.safebox.storage.Bytes
+import android.security.keystore.KeyProperties.KEY_ALGORITHM_AES
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import javax.crypto.SecretKey
 
-internal fun requireAes(key: SecretKey) {
-    require(key.algorithm == AesMode.ALGORITHM) { "Only AES keys are supported" }
-}
+internal val safeBoxScope = CoroutineScope(SupervisorJob())
 
-internal fun ByteArray.toBytes(): Bytes = Bytes(this)
+internal fun requireAes(key: SecretKey) {
+    require(key.algorithm == KEY_ALGORITHM_AES) { "Only AES keys are supported" }
+}
