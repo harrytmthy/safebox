@@ -20,6 +20,8 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.harrytmthy.safebox.extensions.toBytes
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.runner.RunWith
@@ -30,6 +32,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
 class SafeBoxBlobStoreTest {
 
@@ -37,39 +40,37 @@ class SafeBoxBlobStoreTest {
 
     private val fileName: String = "safebox_blob_test"
 
-    private val blobStore = SafeBoxBlobStore(context, fileName)
+    private val blobStore = SafeBoxBlobStore.create(context, fileName, UnconfinedTestDispatcher())
 
     @After
     fun teardown() {
         blobStore.close()
-        File(context.filesDir, "$fileName.bin").delete()
+        File(context.noBackupFilesDir, "$fileName.bin").delete()
     }
 
     @Test
     fun loadAll_shouldReturnWrittenEntries() = runTest {
-        blobStore.loadAll()
-        val firstKey = "alpha".toByteArray()
+        val firstKey = "alpha".toByteArray().toBytes()
         val firstValue = "123".toByteArray()
-        val secondKey = "beta".toByteArray()
+        val secondKey = "beta".toByteArray().toBytes()
         val secondValue = "456".toByteArray()
         blobStore.write(firstKey, firstValue)
         blobStore.write(secondKey, secondValue)
 
-        val result = blobStore.loadAll()
+        val result = blobStore.getAll()
 
         assertEquals(2, result.size)
-        assertContentEquals(firstValue, result[firstKey.toBytes()])
-        assertContentEquals(secondValue, result[secondKey.toBytes()])
+        assertContentEquals(firstValue, result[firstKey])
+        assertContentEquals(secondValue, result[secondKey])
     }
 
     @Test
     fun delete_shouldRemoveFirstEntry() = runTest {
-        blobStore.loadAll()
-        val firstKey = "alpha".toByteArray()
+        val firstKey = "alpha".toByteArray().toBytes()
         val firstValue = "123".toByteArray()
-        val secondKey = "beta".toByteArray()
+        val secondKey = "beta".toByteArray().toBytes()
         val secondValue = "456".toByteArray()
-        val thirdKey = "pete".toByteArray()
+        val thirdKey = "pete".toByteArray().toBytes()
         val thirdValue = "789".toByteArray()
         blobStore.write(firstKey, firstValue)
         blobStore.write(secondKey, secondValue)
@@ -77,21 +78,21 @@ class SafeBoxBlobStoreTest {
 
         blobStore.delete(firstKey)
 
-        val result = blobStore.loadAll()
+        val result = blobStore.getAll()
         assertEquals(2, result.size)
-        assertContentEquals(null, result[firstKey.toBytes()])
-        assertContentEquals(secondValue, result[secondKey.toBytes()])
-        assertContentEquals(thirdValue, result[thirdKey.toBytes()])
+        assertFalse(result.any { it == firstKey })
+        assertContentEquals(secondValue, result[secondKey])
+        assertContentEquals(thirdValue, result[thirdKey])
+        assertFalse(blobStore.entryMetas.containsKey(firstKey))
     }
 
     @Test
     fun delete_shouldRemoveSecondEntry() = runTest {
-        blobStore.loadAll()
-        val firstKey = "alpha".toByteArray()
+        val firstKey = "alpha".toByteArray().toBytes()
         val firstValue = "123".toByteArray()
-        val secondKey = "beta".toByteArray()
+        val secondKey = "beta".toByteArray().toBytes()
         val secondValue = "456".toByteArray()
-        val thirdKey = "pete".toByteArray()
+        val thirdKey = "pete".toByteArray().toBytes()
         val thirdValue = "789".toByteArray()
         blobStore.write(firstKey, firstValue)
         blobStore.write(secondKey, secondValue)
@@ -99,21 +100,21 @@ class SafeBoxBlobStoreTest {
 
         blobStore.delete(secondKey)
 
-        val result = blobStore.loadAll()
+        val result = blobStore.getAll()
         assertEquals(2, result.size)
-        assertContentEquals(firstValue, result[firstKey.toBytes()])
-        assertContentEquals(null, result[secondKey.toBytes()])
-        assertContentEquals(thirdValue, result[thirdKey.toBytes()])
+        assertFalse(result.any { it == secondKey })
+        assertContentEquals(firstValue, result[firstKey])
+        assertContentEquals(thirdValue, result[thirdKey])
+        assertFalse(blobStore.entryMetas.containsKey(secondKey))
     }
 
     @Test
     fun delete_shouldRemoveLastEntry() = runTest {
-        blobStore.loadAll()
-        val firstKey = "alpha".toByteArray()
+        val firstKey = "alpha".toByteArray().toBytes()
         val firstValue = "123".toByteArray()
-        val secondKey = "beta".toByteArray()
+        val secondKey = "beta".toByteArray().toBytes()
         val secondValue = "456".toByteArray()
-        val thirdKey = "pete".toByteArray()
+        val thirdKey = "pete".toByteArray().toBytes()
         val thirdValue = "789".toByteArray()
         blobStore.write(firstKey, firstValue)
         blobStore.write(secondKey, secondValue)
@@ -121,83 +122,80 @@ class SafeBoxBlobStoreTest {
 
         blobStore.delete(thirdKey)
 
-        val result = blobStore.loadAll()
+        val result = blobStore.getAll()
         assertEquals(2, result.size)
-        assertContentEquals(firstValue, result[firstKey.toBytes()])
-        assertContentEquals(secondValue, result[secondKey.toBytes()])
-        assertContentEquals(null, result[thirdKey.toBytes()])
+        assertFalse(result.any { it == thirdKey })
+        assertContentEquals(firstValue, result[firstKey])
+        assertContentEquals(secondValue, result[secondKey])
+        assertFalse(blobStore.entryMetas.containsKey(thirdKey))
     }
 
     @Test
     fun deleteAndWrite_shouldReflectCorrectMetaState() = runTest {
-        blobStore.loadAll()
-        val firstKey = "alpha".toByteArray()
+        val firstKey = "alpha".toByteArray().toBytes()
         val firstValue = "123".toByteArray()
-        val secondKey = "beta".toByteArray()
+        val secondKey = "beta".toByteArray().toBytes()
         val secondValue = "456".toByteArray()
         blobStore.write(firstKey, firstValue)
         blobStore.write(secondKey, secondValue)
 
         blobStore.delete(firstKey)
-        val thirdKey = "pete".toByteArray()
+        val thirdKey = "pete".toByteArray().toBytes()
         val thirdValue = "789".toByteArray()
         blobStore.write(thirdKey, thirdValue)
 
-        val result = blobStore.loadAll()
+        val result = blobStore.getAll()
         assertEquals(2, result.size)
-        assertContentEquals(null, result[firstKey.toBytes()])
-        assertContentEquals(secondValue, result[secondKey.toBytes()])
-        assertContentEquals(thirdValue, result[thirdKey.toBytes()])
-        assertFalse(blobStore.entryMetaByKey.containsKey(firstKey.toBytes()))
-        assertTrue(blobStore.entryMetaByKey.containsKey(secondKey.toBytes()))
-        assertTrue(blobStore.entryMetaByKey.containsKey(thirdKey.toBytes()))
+        assertFalse(result.any { it == firstKey })
+        assertContentEquals(secondValue, result[secondKey])
+        assertContentEquals(thirdValue, result[thirdKey])
+        assertFalse(blobStore.entryMetas.containsKey(firstKey))
+        assertTrue(blobStore.entryMetas.containsKey(secondKey))
+        assertTrue(blobStore.entryMetas.containsKey(thirdKey))
     }
 
     @Test
     fun write_withSameNewSize_shouldOverwriteExitingValue() = runTest {
-        blobStore.loadAll()
-        val key = "alpha".toByteArray()
+        val key = "alpha".toByteArray().toBytes()
         val firstValue = "123".toByteArray()
         val secondValue = "456".toByteArray()
 
         blobStore.write(key, firstValue)
         blobStore.write(key, secondValue)
 
-        val result = blobStore.loadAll()
+        val result = blobStore.getAll()
         assertEquals(1, result.size)
-        assertContentEquals(secondValue, result[key.toBytes()])
-        assertTrue(blobStore.entryMetaByKey.containsKey(key.toBytes()))
+        assertContentEquals(secondValue, result[key])
+        assertTrue(blobStore.entryMetas.containsKey(key))
     }
 
     @Test
     fun write_withSmallerNewSize_shouldOverwriteExistingValue() = runTest {
-        blobStore.loadAll()
-        val key = "alpha".toByteArray()
+        val key = "alpha".toByteArray().toBytes()
         val firstValue = "12345".toByteArray()
         val secondValue = "1".toByteArray()
 
         blobStore.write(key, firstValue)
         blobStore.write(key, secondValue)
 
-        val result = blobStore.loadAll()
+        val result = blobStore.getAll()
         assertEquals(1, result.size)
-        assertContentEquals(secondValue, result[key.toBytes()])
-        assertTrue(blobStore.entryMetaByKey.containsKey(key.toBytes()))
+        assertContentEquals(secondValue, result[key])
+        assertTrue(blobStore.entryMetas.containsKey(key))
     }
 
     @Test
     fun write_withLargerNewSize_shouldOverwriteExistingValue() = runTest {
-        blobStore.loadAll()
-        val key = "alpha".toByteArray()
+        val key = "alpha".toByteArray().toBytes()
         val firstValue = "1".toByteArray()
         val secondValue = "12345".toByteArray()
 
         blobStore.write(key, firstValue)
         blobStore.write(key, secondValue)
 
-        val result = blobStore.loadAll()
+        val result = blobStore.getAll()
         assertEquals(1, result.size)
-        assertContentEquals(secondValue, result[key.toBytes()])
-        assertTrue(blobStore.entryMetaByKey.containsKey(key.toBytes()))
+        assertContentEquals(secondValue, result[key])
+        assertTrue(blobStore.entryMetas.containsKey(key))
     }
 }

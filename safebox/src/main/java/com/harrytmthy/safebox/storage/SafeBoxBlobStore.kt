@@ -17,14 +17,22 @@
 package com.harrytmthy.safebox.storage
 
 import android.content.Context
+import android.util.Log
 import androidx.annotation.VisibleForTesting
+import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
+import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
+import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.ERROR
+import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.RandomAccessFile
-import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Memory-mapped storage engine used by SafeBox to persist encrypted key-value entries.
@@ -35,51 +43,67 @@ import java.nio.channels.FileChannel
  * Keys and values are stored as length-prefixed byte sequences:
  * [keyLength:Short][valueLength:Int][keyBytes:ByteArray][valueBytes:ByteArray]
  */
-internal class SafeBoxBlobStore(context: Context, fileName: String) {
+internal class SafeBoxBlobStore private constructor(
+    ioDispatcher: CoroutineDispatcher,
+    private val channel: FileChannel,
+) {
 
-    private val channel: FileChannel
-    private val buffer: MappedByteBuffer
+    private val buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, BUFFER_CAPACITY.toLong())
 
-    private val readMutex = Mutex()
-    private val writeMutex = Mutex()
+    private val entries = HashMap<Bytes, ByteArray>()
 
     @VisibleForTesting
-    internal val entryMetaByKey = LinkedHashMap<Bytes, EntryMeta>()
+    internal val entryMetas = LinkedHashMap<Bytes, EntryMeta>()
+
+    private val initialLoadCompleted = AtomicBoolean(false)
+
+    private val initialLoadStrategy = AtomicReference<ValueFallbackStrategy>(WARN)
+
+    private val writeMutex = Mutex()
 
     private val nextWritePosition: Int
-        get() = entryMetaByKey.values.lastOrNull()?.run { offset + size } ?: 0
+        get() = entryMetas.values.lastOrNull()?.run { offset + size } ?: 0
 
     init {
-        val file = File(context.filesDir, "$fileName.bin")
-        if (!file.exists()) file.createNewFile()
-        val raf = RandomAccessFile(file, "rw")
-        channel = raf.channel
-        buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, BUFFER_CAPACITY.toLong())
+        safeBoxScope.launch(ioDispatcher) {
+            writeMutex.withLock {
+                var offset = 0
+                while (offset + HEADER_SIZE <= buffer.capacity()) {
+                    buffer.position(offset)
+                    val keyLength = buffer.short.toInt()
+                    val valueLength = buffer.int
+                    val entrySize = HEADER_SIZE + keyLength + valueLength
+                    if (keyLength == 0 || offset + entrySize > buffer.capacity()) {
+                        break
+                    }
+                    val encryptedKey = ByteArray(keyLength).also(buffer::get).toBytes()
+                    val encryptedValue = ByteArray(valueLength).also(buffer::get)
+                    entries[encryptedKey] = encryptedValue
+                    entryMetas[encryptedKey] = EntryMeta(offset, entrySize)
+                    offset += HEADER_SIZE + keyLength + valueLength
+                }
+                initialLoadCompleted.set(true)
+            }
+        }
     }
 
-    /**
-     * Loads all key-value pairs stored in the blob file into memory.
-     * Only entries up to the current write position are considered valid.
-     *
-     * @return A map of stored keys and their corresponding byte array values.
-     */
-    internal suspend fun loadAll(): Map<Bytes, ByteArray> = readMutex.withLock {
-        val result = LinkedHashMap<Bytes, ByteArray>()
-        var offset = 0
-        while (offset + HEADER_SIZE <= buffer.capacity()) {
-            buffer.position(offset)
-            val keyLength = buffer.short.toInt()
-            val valueLength = buffer.int
-            val entrySize = HEADER_SIZE + keyLength + valueLength
-            if (keyLength == 0 || offset + entrySize > buffer.capacity()) {
-                break
-            }
-            val key = ByteArray(keyLength).also(buffer::get).toBytes()
-            result[key] = ByteArray(valueLength).also(buffer::get)
-            entryMetaByKey[key] = EntryMeta(offset, entrySize)
-            offset += HEADER_SIZE + keyLength + valueLength
-        }
-        result
+    internal fun get(key: Bytes): ByteArray? {
+        checkInitialLoad()
+        return entries[key]
+    }
+
+    internal fun getAll(): Map<Bytes, ByteArray> {
+        checkInitialLoad()
+        return entries
+    }
+
+    internal fun contains(encryptedKey: Bytes): Boolean {
+        checkInitialLoad()
+        return entries.containsKey(encryptedKey)
+    }
+
+    internal fun setInitialLoadStrategy(fallbackStrategy: ValueFallbackStrategy) {
+        initialLoadStrategy.set(fallbackStrategy)
     }
 
     /**
@@ -89,18 +113,17 @@ internal class SafeBoxBlobStore(context: Context, fileName: String) {
      * exists, the entry is overwritten in-place if sizes match. Otherwise, the blob is compacted
      * to accommodate the size difference before rewriting.
      *
-     * @param key The encrypted key to store, typically already processed by the cipher layer.
-     * @param value The encrypted value to associate with the key.
+     * @param encryptedKey The encrypted key to store.
+     * @param encryptedValue The encrypted value to associate with the key.
      *
      * @throws IllegalStateException if the blob file does not have enough remaining capacity.
      */
-    internal suspend fun write(key: ByteArray, value: ByteArray) {
+    internal suspend fun write(encryptedKey: Bytes, encryptedValue: ByteArray) {
         writeMutex.withLock {
-            val realKey = key.toBytes()
-            if (!entryMetaByKey.contains(realKey)) {
-                writeAtOffset(realKey, value)
+            if (!entryMetas.contains(encryptedKey)) {
+                writeAtOffset(encryptedKey, encryptedValue)
             } else {
-                overwrite(realKey, value)
+                overwrite(encryptedKey, encryptedValue)
             }
         }
     }
@@ -111,28 +134,43 @@ internal class SafeBoxBlobStore(context: Context, fileName: String) {
      * Performs a logical deletion by zeroing-out the entry data in-place, followed by compaction
      * to maintain contiguous storage and update metadata offsets accordingly.
      *
-     * @param keys Vararg array of keys to delete.
+     * @param encryptedKeys Vararg array of keys to delete.
      */
-    internal suspend fun delete(vararg keys: ByteArray) {
+    internal suspend fun delete(vararg encryptedKeys: Bytes) {
         writeMutex.withLock {
-            val entries = entryMetaByKey.values.toList()
-            val realKeys = keys.map { it.toBytes() }
-            for (realKey in realKeys) {
-                val currentIndex = entryMetaByKey.keys.indexOf(realKey)
+            val metas = entryMetas.values.toList()
+            for (encryptedKey in encryptedKeys) {
+                val currentIndex = entryMetas.keys.indexOf(encryptedKey)
                 if (currentIndex == -1) {
                     continue
                 }
-                val entry = entries[currentIndex]
+                val entry = metas[currentIndex]
                 shiftRemainingBytes(
                     remainingSize = nextWritePosition - (entry.offset + entry.size),
                     fromOffset = entry.offset + entry.size,
                     toOffset = entry.offset,
                 )
-                updateEntryMetaOffsets(currentIndex + 1, entry.offset, entries)
+                updateEntryMetaOffsets(currentIndex + 1, entry.offset, metas)
             }
             buffer.force()
-            realKeys.forEach(entryMetaByKey::remove)
+            entries -= encryptedKeys
+            entryMetas -= encryptedKeys
         }
+    }
+
+    /**
+     * Deletes all entries from the blob storage.
+     *
+     * Performs a complete logical wipe by zeroing-out all bytes up to the last written position,
+     * ensuring previously stored data cannot be recovered. Also clears all in-memory metadata
+     * to reset the store to its initial empty state.
+     */
+    suspend fun deleteAll() = writeMutex.withLock {
+        buffer.position(0)
+        buffer.put(ByteArray(nextWritePosition))
+        buffer.force()
+        entries.clear()
+        entryMetas.clear()
     }
 
     /**
@@ -144,28 +182,29 @@ internal class SafeBoxBlobStore(context: Context, fileName: String) {
     }
 
     private fun writeAtOffset(
-        realKey: Bytes,
-        value: ByteArray,
+        encryptedKey: Bytes,
+        encryptedValue: ByteArray,
         offset: Int = nextWritePosition,
     ) {
-        val entrySize = HEADER_SIZE + realKey.value.size + value.size
+        val entrySize = HEADER_SIZE + encryptedKey.value.size + encryptedValue.size
         if (offset + entrySize > buffer.capacity()) {
             error("Cannot write at offset. Not enough buffer capacity.")
         }
         buffer.position(offset)
-        buffer.putShort(realKey.value.size.toShort())
-        buffer.putInt(value.size)
-        buffer.put(realKey.value)
-        buffer.put(value)
+        buffer.putShort(encryptedKey.value.size.toShort())
+        buffer.putInt(encryptedValue.size)
+        buffer.put(encryptedKey.value)
+        buffer.put(encryptedValue)
         buffer.force()
-        entryMetaByKey[realKey] = EntryMeta(offset, entrySize)
+        entries[encryptedKey] = encryptedValue
+        entryMetas[encryptedKey] = EntryMeta(offset, entrySize)
     }
 
-    private fun overwrite(realKey: Bytes, value: ByteArray) {
-        val entry = entryMetaByKey.getValue(realKey)
-        val newSize = HEADER_SIZE + realKey.value.size + value.size
+    private fun overwrite(encryptedKey: Bytes, encryptedValue: ByteArray) {
+        val entry = entryMetas.getValue(encryptedKey)
+        val newSize = HEADER_SIZE + encryptedKey.value.size + encryptedValue.size
         if (newSize == entry.size) {
-            writeAtOffset(realKey, value, entry.offset)
+            writeAtOffset(encryptedKey, encryptedValue, entry.offset)
             return
         }
         shiftRemainingBytes(
@@ -173,8 +212,8 @@ internal class SafeBoxBlobStore(context: Context, fileName: String) {
             fromOffset = entry.offset + entry.size,
             toOffset = entry.offset + newSize,
         )
-        writeAtOffset(realKey, value, entry.offset)
-        val currentIndex = entryMetaByKey.keys.indexOf(realKey)
+        writeAtOffset(encryptedKey, encryptedValue, entry.offset)
+        val currentIndex = entryMetas.keys.indexOf(encryptedKey)
         updateEntryMetaOffsets(currentIndex + 1, entry.offset + newSize)
         buffer.force()
     }
@@ -194,30 +233,54 @@ internal class SafeBoxBlobStore(context: Context, fileName: String) {
                 return
             }
         }
-        while (buffer.position() < nextWritePosition) {
-            buffer.put(0.toByte())
+        val gap = nextWritePosition - buffer.position()
+        if (gap > 0) {
+            buffer.put(ByteArray(gap))
         }
     }
 
     private fun updateEntryMetaOffsets(
         startIndex: Int,
         initialOffset: Int,
-        entries: List<EntryMeta> = entryMetaByKey.values.toList(),
+        entries: List<EntryMeta> = entryMetas.values.toList(),
     ) {
         var offset = initialOffset
         for (index in startIndex until entries.size) {
-            val key = entryMetaByKey.keys.elementAt(index)
+            val key = entryMetas.keys.elementAt(index)
             val updatedEntry = entries[index].copy(offset = offset)
-            entryMetaByKey[key] = updatedEntry
+            entryMetas[key] = updatedEntry
             offset += updatedEntry.size
+        }
+    }
+
+    private fun checkInitialLoad() {
+        if (initialLoadCompleted.get()) {
+            return
+        }
+        when (initialLoadStrategy.get()) {
+            ERROR -> error("Initial load is not yet completed.")
+            WARN -> Log.w("SafeBox", "A value was retrieved before initial load completed.")
         }
     }
 
     @VisibleForTesting
     internal data class EntryMeta(val offset: Int, val size: Int)
 
-    private companion object {
+    internal companion object {
         const val BUFFER_CAPACITY = 1024 * 1024 // 1MB
         const val HEADER_SIZE = 6 // 2 bytes for key length, 4 bytes for value length
+
+        internal fun create(
+            context: Context,
+            fileName: String,
+            ioDispatcher: CoroutineDispatcher,
+        ): SafeBoxBlobStore {
+            val file = File(context.noBackupFilesDir, "$fileName.bin")
+            if (!file.exists()) {
+                file.createNewFile()
+            }
+            val raf = RandomAccessFile(file, "rw")
+            return SafeBoxBlobStore(ioDispatcher, raf.channel)
+        }
     }
 }
