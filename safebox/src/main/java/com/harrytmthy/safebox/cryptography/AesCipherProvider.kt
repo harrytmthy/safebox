@@ -31,7 +31,7 @@ import javax.crypto.Cipher
  * Uses a supplied [AesMode] to dynamically configure encryption and decryption behavior.
  * GCM mode includes optional AAD binding for integrity protection.
  */
-public class AesCipherProvider(
+internal class AesCipherProvider(
     private val aesMode: AesMode,
     private val keyProvider: KeyProvider,
 ) : CipherProvider {

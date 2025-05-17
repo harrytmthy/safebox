@@ -17,50 +17,61 @@
 package com.harrytmthy.safebox.keystore
 
 import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties.PURPOSE_DECRYPT
 import android.security.keystore.KeyProperties.PURPOSE_ENCRYPT
-import com.harrytmthy.safebox.mode.AesMode
+import android.security.keystore.KeyProperties.PURPOSE_SIGN
 import java.security.KeyStore
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
 /**
- * A [KeyProvider] implementation backed by AndroidKeyStore.
+ * A flexible [KeyProvider] backed by AndroidKeyStore, capable of provisioning secret keys for
+ * various cryptographic purposes (e.g. AES, HMAC).
  *
- * This strategy securely generates and retrieves symmetric AES keys tied to a given alias.
- * It configures the key based on the specified [AesMode], ensuring compatibility with the
- * cipher block mode and padding scheme used during encryption.
+ * This implementation unifies multiple key strategies into a single reusable provider, where
+ * clients define the cryptographic intent via [purposes] and configure key generation parameters
+ * using [parameterSpecBuilder].
  *
- * The generated key is hardware-backed (when available), and stored securely inside
- * the AndroidKeyStore system. Keys are persistent across app restarts, but scoped
- * to the device and the given alias.
+ * ## Usage Example
+ * ```
+ * val aesKeyProvider = AndroidKeyStoreKeyProvider(
+ *     alias = "aes-key",
+ *     purposes = PURPOSE_ENCRYPT or PURPOSE_DECRYPT
+ * ) {
+ *     setBlockModes("GCM")
+ *     setEncryptionPaddings("NoPadding")
+ *     setRandomizedEncryptionRequired(false)
+ * }
+ * ```
  *
- * **Note:**
- * - Requires minSdk 23 due to AndroidKeyStore AES support.
- * - Must use a block mode and padding compatible with AndroidKeyStore (e.g. GCM or CBC).
+ * @param alias The key alias under which the key is stored in AndroidKeyStore.
+ * @param purposes The cryptographic purposes (e.g. [PURPOSE_ENCRYPT], [PURPOSE_SIGN]).
+ * @param parameterSpecBuilder Lambda that configures the [KeyGenParameterSpec.Builder].
  */
-public class AndroidKeyStoreKeyProvider(
-    private val mode: AesMode,
-    private val alias: String,
+internal class AndroidKeyStoreKeyProvider(
+    alias: String,
+    algorithm: String,
+    purposes: Int,
+    parameterSpecBuilder: KeyGenParameterSpec.Builder.() -> Unit,
 ) : KeyProvider {
 
-    override fun getOrCreateKey(): SecretKey {
+    private val key: SecretKey by lazy {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 
-        return if (keyStore.containsAlias(alias)) {
+        if (keyStore.containsAlias(alias)) {
             val entry = keyStore.getEntry(alias, null) as KeyStore.SecretKeyEntry
             entry.secretKey
         } else {
-            val keyGenerator = KeyGenerator.getInstance(AesMode.ALGORITHM, ANDROID_KEYSTORE)
+            val keyGenerator = KeyGenerator.getInstance(algorithm, ANDROID_KEYSTORE)
             keyGenerator.init(
-                KeyGenParameterSpec.Builder(alias, PURPOSE_ENCRYPT or PURPOSE_DECRYPT)
-                    .setBlockModes(mode.name)
-                    .setEncryptionPaddings(mode.padding)
+                KeyGenParameterSpec.Builder(alias, purposes)
+                    .apply(parameterSpecBuilder)
                     .build(),
             )
             keyGenerator.generateKey()
         }
     }
+
+    override fun getOrCreateKey(): SecretKey = key
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"

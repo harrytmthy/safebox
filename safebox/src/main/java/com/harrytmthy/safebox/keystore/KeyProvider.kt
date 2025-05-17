@@ -19,16 +19,19 @@ package com.harrytmthy.safebox.keystore
 import javax.crypto.SecretKey
 
 /**
- * Provides symmetric encryption keys for SafeBox. Implementations may source keys from
- * AndroidKeyStore or other secure mechanisms.
+ * Provides cryptographic keys for SafeBox operations.
+ *
+ * This interface represents a contract for retrieving or generating secure keys, typically stored
+ * in a secure enclave such as AndroidKeyStore.
  */
-public interface KeyProvider {
+internal interface KeyProvider {
 
     /**
-     * Returns the encryption key for SafeBox usage. Implementations must ensure the key is created
-     * if not yet available.
+     * Returns a [SecretKey] suitable for the intended cryptographic operation.
      *
-     * @return A valid AES SecretKey instance.
+     * Implementations must guarantee the key is created if it does not already exist.
+     *
+     * @return A non-null [SecretKey] instance.
      */
     fun getOrCreateKey(): SecretKey
 }

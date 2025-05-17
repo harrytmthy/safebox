@@ -16,8 +16,16 @@
 
 package com.harrytmthy.safebox.keystore
 
+import android.security.keystore.KeyProperties.BLOCK_MODE_GCM
+import android.security.keystore.KeyProperties.DIGEST_SHA256
+import android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE
+import android.security.keystore.KeyProperties.KEY_ALGORITHM_AES
+import android.security.keystore.KeyProperties.KEY_ALGORITHM_HMAC_SHA256
+import android.security.keystore.KeyProperties.PURPOSE_DECRYPT
+import android.security.keystore.KeyProperties.PURPOSE_ENCRYPT
+import android.security.keystore.KeyProperties.PURPOSE_SIGN
+import android.security.keystore.KeyProperties.PURPOSE_VERIFY
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.harrytmthy.safebox.mode.AesMode
 import org.junit.runner.RunWith
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -26,17 +34,51 @@ import kotlin.test.assertEquals
 class AndroidKeyStoreKeyProviderTest {
 
     @Test
-    fun getOrCreateKey_shouldReturnValidAesKey() {
-        val keyProvider = AndroidKeyStoreKeyProvider(AesMode.Gcm(), "TestAlias")
+    fun getOrCreateKey_withAes_shouldReturnValidAesKey() {
+        val keyProvider = AndroidKeyStoreKeyProvider(
+            alias = "TestAlias",
+            algorithm = KEY_ALGORITHM_AES,
+            purposes = PURPOSE_ENCRYPT or PURPOSE_DECRYPT,
+            parameterSpecBuilder = {
+                setBlockModes(BLOCK_MODE_GCM)
+                setEncryptionPaddings(ENCRYPTION_PADDING_NONE)
+            },
+        )
+
         val key = keyProvider.getOrCreateKey()
+
         assertEquals("AES", key.algorithm)
     }
 
     @Test
-    fun getOrCreateKey_shouldReturnTheSameKeyAcrossInvocations() {
-        val keyProvider = AndroidKeyStoreKeyProvider(AesMode.Gcm(), "TestAlias")
+    fun getOrCreateKey_withAes_shouldReturnTheSameKeyAcrossInvocations() {
+        val keyProvider = AndroidKeyStoreKeyProvider(
+            alias = "TestAlias",
+            algorithm = KEY_ALGORITHM_AES,
+            purposes = PURPOSE_ENCRYPT or PURPOSE_DECRYPT,
+            parameterSpecBuilder = {
+                setBlockModes(BLOCK_MODE_GCM)
+                setEncryptionPaddings(ENCRYPTION_PADDING_NONE)
+            },
+        )
+
         val first = keyProvider.getOrCreateKey()
         val second = keyProvider.getOrCreateKey()
+
         assertEquals(first, second)
+    }
+
+    @Test
+    fun getOrCreateKey_withHmac_shouldReturnValidAesKey() {
+        val keyProvider = AndroidKeyStoreKeyProvider(
+            alias = "TestAlias",
+            algorithm = KEY_ALGORITHM_HMAC_SHA256,
+            purposes = PURPOSE_SIGN or PURPOSE_VERIFY,
+            parameterSpecBuilder = { setDigests(DIGEST_SHA256) },
+        )
+
+        val key = keyProvider.getOrCreateKey()
+
+        assertEquals("AES", key.algorithm)
     }
 }
