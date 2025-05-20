@@ -49,8 +49,9 @@ android {
 }
 
 dependencies {
-    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.bouncy.castle.provider)
+    implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
