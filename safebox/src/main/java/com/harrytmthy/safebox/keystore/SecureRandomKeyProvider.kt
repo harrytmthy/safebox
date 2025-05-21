@@ -29,11 +29,11 @@ import javax.crypto.SecretKey
  *
  * Behavior:
  * - The key is generated using [SecureRandomProvider] on first use.
- * - It is encrypted via the given [CipherProvider] and stored in [noBackupFilesDir].
- * - The key is decrypted and cached on first access, and may be manually cleared.
+ * - It is encrypted via the given [CipherProvider] and stored in noBackupFilesDir.
+ * - The key is decrypted and cached on first access.
  *
- * This class is suitable for non-Keystore-based algorithms like ChaCha20,
- * where secure persistence must be handled outside AndroidKeyStore.
+ * This class is suitable for non-Keystore-based algorithms like ChaCha20, where
+ * secure persistence must be handled outside AndroidKeyStore.
  */
 internal class SecureRandomKeyProvider private constructor(
     private val keyFile: File,
