@@ -18,18 +18,9 @@ package com.harrytmthy.safebox.cryptography
 
 import java.security.SecureRandom
 
-/**
- * Generates cryptographically secure IVs.
- */
-public object IvProvider {
+internal object SecureRandomProvider {
 
     private val secureRandom = SecureRandom()
 
-    /**
-     * Generates a new IV of the specified size in bytes.
-     *
-     * @param size The size of the IV in bytes.
-     * @return A randomly generated IV.
-     */
     fun generate(size: Int): ByteArray = ByteArray(size).also(secureRandom::nextBytes)
 }
