@@ -164,14 +164,19 @@ internal class SafeBoxBlobStore private constructor(
      * Performs a complete logical wipe by zeroing-out all bytes up to the last written position,
      * ensuring previously stored data cannot be recovered. Also clears all in-memory metadata
      * to reset the store to its initial empty state.
+     *
+     * @return a set of [Bytes] keys that were removed, used for notifying listeners.
      */
-    suspend fun deleteAll() = writeMutex.withLock {
-        buffer.position(0)
-        buffer.put(ByteArray(nextWritePosition))
-        buffer.force()
-        entries.clear()
-        entryMetas.clear()
-    }
+    suspend fun deleteAll(): Set<Bytes> =
+        writeMutex.withLock {
+            buffer.position(0)
+            buffer.put(ByteArray(nextWritePosition))
+            buffer.force()
+            val keys = entries.keys.toSet()
+            entries.clear()
+            entryMetas.clear()
+            keys
+        }
 
     /**
      * Closes the underlying file channel and releases associated resources.
