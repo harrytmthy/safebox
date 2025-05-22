@@ -35,12 +35,19 @@ import javax.crypto.Cipher
  * that is safe. Thus, suppressing the deprecation is necessary.
  */
 @SuppressLint("DeprecatedProvider")
-internal class ChaCha20CipherProvider(private val keyProvider: KeyProvider) : CipherProvider {
+internal class ChaCha20CipherProvider(
+    private val keyProvider: KeyProvider,
+    private val deterministic: Boolean,
+) : CipherProvider {
 
     private val cipher = Cipher.getInstance(TRANSFORMATION, BouncyCastleProvider.PROVIDER_NAME)
 
     override fun encrypt(plaintext: ByteArray): ByteArray {
-        val iv = MessageDigest.getInstance(DIGEST_SHA256).digest(plaintext).copyOf(12)
+        val iv = if (deterministic) {
+            MessageDigest.getInstance(DIGEST_SHA256).digest(plaintext).copyOf(IV_SIZE)
+        } else {
+            SecureRandomProvider.generate(IV_SIZE)
+        }
         val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
         val key = keyProvider.getOrCreateKey()
         cipher.init(Cipher.ENCRYPT_MODE, key, paramSpec)

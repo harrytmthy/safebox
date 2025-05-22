@@ -40,17 +40,16 @@ class ChaCha20CipherProviderTest {
         cipherProvider = AesGcmCipherProvider.create("test-gcm-alias", "test".toByteArray()),
     )
 
-    private val cipherProvider = ChaCha20CipherProvider(keyProvider)
-
     @After
     fun tearDown() {
         File(context.noBackupFilesDir, "test-key.bin").delete()
     }
 
     @Test
-    fun encryptAndDecrypt_shouldReturnOriginal() {
+    fun deterministic_encryptAndDecrypt_shouldReturnOriginal() {
         val input = "SafeBox with ChaCha20".toByteArray()
 
+        val cipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
         val encrypted = cipherProvider.encrypt(input)
         val encrypted2 = cipherProvider.encrypt(input)
         val decrypted = cipherProvider.decrypt(encrypted)
@@ -63,9 +62,21 @@ class ChaCha20CipherProviderTest {
     }
 
     @Test
+    fun nonDeterministic_encryptAndDecrypt_shouldReturnOriginal() {
+        val input = "SafeBox with ChaCha20".toByteArray()
+
+        val cipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
+        val encrypted = cipherProvider.encrypt(input)
+        val decrypted = cipherProvider.decrypt(encrypted)
+
+        assertContentEquals(input, decrypted)
+    }
+
+    @Test
     fun decrypt_withModifiedCipher_shouldFail() {
         val input = "Do not tamper!".toByteArray()
 
+        val cipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
         val tampered = cipherProvider.encrypt(input)
             .also { it[13] = (it[13].toInt() xor 0xFF).toByte() }
 

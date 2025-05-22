@@ -54,8 +54,8 @@ import java.util.concurrent.atomic.AtomicReference
  * built-in security best practices.
  *
  * Key features:
- * - **Automatic encryption:** Utilizes ChaCha20-Poly1305 for secure storage and AES-GCM for
- *   protecting internal keys.
+ * - **Dual encryption providers:** Uses separate ciphers for key encryption (deterministic) and
+ *   value encryption (non-deterministic) for maximum integrity and confidentiality.
  * - **Memory-safe:** Employs strategies like DirectByteBuffer to prevent secret leakage into heap.
  * - **Performance-oriented:** Provides significantly faster read and write operations than
  *   traditional `EncryptedSharedPreferences`.
@@ -65,13 +65,15 @@ import java.util.concurrent.atomic.AtomicReference
  * initialization and configuration.
  *
  * @param blobStore Internal storage engine managing encrypted key-value pairs.
- * @param cipherProvider Cipher provider responsible for encryption/decryption operations.
- * @param dispatcher Coroutine dispatcher for IO operations, defaults to [Dispatchers.IO].
+ * @param keyCipherProvider Cipher used for encrypting and decrypting keys (deterministic).
+ * @param valueCipherProvider Cipher used for encrypting and decrypting values (randomized).
+ * @param ioDispatcher Coroutine dispatcher for IO operations.
  */
 public class SafeBox private constructor(
     private val blobStore: SafeBoxBlobStore,
-    private val cipherProvider: CipherProvider,
-    private val dispatcher: CoroutineDispatcher,
+    private val keyCipherProvider: CipherProvider,
+    private val valueCipherProvider: CipherProvider,
+    private val ioDispatcher: CoroutineDispatcher,
 ) : SharedPreferences {
 
     private val castFailureStrategy = AtomicReference<ValueFallbackStrategy>(WARN)
@@ -109,7 +111,7 @@ public class SafeBox private constructor(
             }
 
         override fun apply(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
-            safeBoxScope.launch(dispatcher + exceptionHandler) {
+            safeBoxScope.launch(ioDispatcher + exceptionHandler) {
                 applyCompleted = CompletableDeferred()
                 applyMutex.withLock {
                     applyChanges(entries, cleared)
@@ -161,8 +163,8 @@ public class SafeBox private constructor(
         val encryptedEntries = blobStore.getAll()
         val decryptedEntries = HashMap<String, Any?>(encryptedEntries.size, 1f)
         for (entry in encryptedEntries) {
-            val key = cipherProvider.decrypt(entry.key.value).toString(Charsets.UTF_8)
-            val value = cipherProvider.decrypt(entry.value)
+            val key = keyCipherProvider.decrypt(entry.key.value).toString(Charsets.UTF_8)
+            val value = valueCipherProvider.decrypt(entry.value)
             decryptedEntries[key] = byteDecoder.decodeAny(value)
         }
         return decryptedEntries
@@ -217,12 +219,12 @@ public class SafeBox private constructor(
 
     private fun getDecryptedValue(key: String): ByteArray? =
         blobStore.get(key.toEncryptedKey())
-            ?.let(cipherProvider::decrypt)
+            ?.let(valueCipherProvider::decrypt)
 
     private suspend fun applyChanges(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
         if (cleared) {
             blobStore.deleteAll().forEach { encryptedKey ->
-                val key = cipherProvider.decrypt(encryptedKey.value).toString(Charsets.UTF_8)
+                val key = keyCipherProvider.decrypt(encryptedKey.value).toString(Charsets.UTF_8)
                 listeners.forEach { it.onSharedPreferenceChanged(this, key) }
             }
         }
@@ -230,7 +232,7 @@ public class SafeBox private constructor(
             when (action) {
                 is Put -> {
                     val encryptedKey = key.toEncryptedKey()
-                    val encryptedValue = action.encodedValue.value.let(cipherProvider::encrypt)
+                    val encryptedValue = action.encodedValue.value.let(valueCipherProvider::encrypt)
                     blobStore.write(encryptedKey, encryptedValue)
                 }
                 is Remove -> {
@@ -246,7 +248,7 @@ public class SafeBox private constructor(
     }
 
     private fun String.toEncryptedKey(): Bytes =
-        cipherProvider.encrypt(this.toByteArray()).toBytes()
+        keyCipherProvider.encrypt(this.toByteArray()).toBytes()
 
     private class Editor(private val delegate: Delegate) : SharedPreferences.Editor {
 
@@ -309,9 +311,9 @@ public class SafeBox private constructor(
 
         /**
          * Creates a [SafeBox] instance with secure defaults:
-         * - Keys are deterministically encrypted using [ChaCha20CipherProvider]
-         * - The ChaCha20 secret is encrypted using AES-GCM and stored in an encrypted file
-         * - Values are encrypted with the same ChaCha20 key
+         * - Keys are deterministically encrypted using [ChaCha20CipherProvider].
+         * - Values are encrypted with the same ChaCha20 key, but with randomized IV per encryption.
+         * - The ChaCha20 secret is encrypted using AES-GCM via [SecureRandomKeyProvider].
          *
          * This method handles secure initialization and is recommended for most use cases.
          *
@@ -334,7 +336,7 @@ public class SafeBox private constructor(
             additionalAuthenticatedData: ByteArray = fileName.toByteArray(),
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         ): SafeBox {
-            val keyCipherProvider = AesGcmCipherProvider.create(
+            val aesGcmCipherProvider = AesGcmCipherProvider.create(
                 alias = valueKeyStoreAlias,
                 aad = additionalAuthenticatedData,
             )
@@ -343,10 +345,11 @@ public class SafeBox private constructor(
                 fileName = keyAlias,
                 keySize = ChaCha20CipherProvider.KEY_SIZE,
                 algorithm = ChaCha20CipherProvider.ALGORITHM,
-                cipherProvider = keyCipherProvider,
+                cipherProvider = aesGcmCipherProvider,
             )
-            val cipherProvider = ChaCha20CipherProvider(keyProvider)
-            return create(context, fileName, cipherProvider, ioDispatcher)
+            val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
+            val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
+            return create(context, fileName, keyCipherProvider, valueCipherProvider, ioDispatcher)
         }
 
         /**
@@ -357,7 +360,8 @@ public class SafeBox private constructor(
          *
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
-         * @param deterministicCipherProvider The cipher used to encrypt both keys and values
+         * @param keyCipherProvider Cipher used for encrypting and decrypting keys
+         * @param valueCipherProvider Cipher used for encrypting and decrypting values
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
          *
          * @return A [SafeBox] instance with the provided [CipherProvider]
@@ -367,11 +371,12 @@ public class SafeBox private constructor(
         public fun create(
             context: Context,
             fileName: String,
-            deterministicCipherProvider: CipherProvider,
+            keyCipherProvider: CipherProvider,
+            valueCipherProvider: CipherProvider,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         ): SafeBox {
             val blobStore = SafeBoxBlobStore.create(context, fileName, ioDispatcher)
-            return SafeBox(blobStore, deterministicCipherProvider, ioDispatcher)
+            return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, ioDispatcher)
         }
     }
 }
