@@ -13,15 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import com.vanniktech.maven.publish.SonatypeHost
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.dokka")
-    `maven-publish`
+    id("com.vanniktech.maven.publish")
 }
 
-group = "com.harrytmthy.safebox"
-version = "1.0.0"
+val safeBoxVersion = "1.0.0"
+
+group = "io.github.harrytmthy-dev"
+version = safeBoxVersion
 
 android {
     namespace = "com.harrytmthy.safebox"
@@ -70,29 +74,45 @@ dokka {
     }
 }
 
-val sourcesJar by tasks.registering(Jar::class) {
+tasks.register<Jar>("sourcesJar") {
     archiveClassifier.set("sources")
     from(android.sourceSets["main"].java.srcDirs)
 }
 
-val javadocJar by tasks.registering(Jar::class) {
+tasks.register<Jar>("javadocJar") {
     dependsOn("dokkaJavadoc")
     archiveClassifier.set("javadoc")
     from(tasks.named("dokkaJavadoc").map { it.outputs.files })
 }
 
-afterEvaluate {
-    publishing {
-        publications {
-            create<MavenPublication>("release") {
-                from(components["release"])
-                groupId = "com.harrytmthy.safebox"
-                artifactId = "safebox"
-                version = "1.0.0"
+mavenPublishing {
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
 
-                artifact(sourcesJar.get())
-                artifact(javadocJar.get())
+    pom {
+        name.set("SafeBox")
+        description.set("A fast and secure replacement for SharedPreferences using memory-mapped file and ChaCha20 encryption.")
+        url.set("https://github.com/harrytmthy/safebox")
+
+        licenses {
+            license {
+                name.set("MIT License")
+                url.set("https://opensource.org/licenses/MIT")
             }
+        }
+
+        developers {
+            developer {
+                id.set("harrytmthy-dev")
+                name.set("Harry Timothy Tumalewa")
+                email.set("harrytmthy@gmail.com")
+            }
+        }
+
+        scm {
+            connection.set("scm:git:git://github.com/harrytmthy-dev/safebox.git")
+            developerConnection.set("scm:git:ssh://github.com:harrytmthy-dev/safebox.git")
+            url.set("https://github.com/harrytmthy/safebox")
         }
     }
 }

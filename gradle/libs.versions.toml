@@ -16,8 +16,10 @@ junit4 = "4.13.2"
 kotlin = "2.1.0"
 kotlinxCoroutines = "1.10.1"
 ksp = "2.1.0-1.0.29"
+mavenPublishPlugin = "0.32.0"
 protobuf = "4.29.2"
 protobufPlugin = "0.9.4"
+safebox = "1.0.0"
 timber = "5.0.1"
 
 [libraries]
@@ -45,6 +47,7 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 protobuf-kotlin-lite = { group = "com.google.protobuf", name = "protobuf-kotlin-lite", version.ref = "protobuf" }
 protobuf-protoc = { group = "com.google.protobuf", name = "protoc", version.ref = "protobuf" }
+safebox = { group = "io.github.harrytmthy-dev", name = "safebox", version.ref = "safebox" }
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 
 [plugins]
@@ -54,4 +57,5 @@ compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublishPlugin"}
 protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }
