@@ -1,32 +1,113 @@
 # SafeBox
 
-A secure and performant encrypted storage designed to seamlessly replace the deprecated EncryptedSharedPreferences. SafeBox leverages memory-mapped file storage and binary encryption to ensure high-speed data operations without compromising security.
+A secure, blazing-fast alternative to `EncryptedSharedPreferences`, designed for Android projects which demand both **speed** and **security**.
+
+## 🚨 EncryptedSharedPreferences is Deprecated
+As of **Jetpack Security 1.1.0-alpha07 (April 9, 2025)**, `EncryptedSharedPreferences` has been deprecated with no official replacement. Without continued support from Google, it may fall behind in cryptography standards, leaving sensitive data exposed.
+
+SafeBox can help you migrate easily using the same SharedPreferences API.
 
 ## Why SafeBox?
 
-While Android provides secured storage APIs like EncryptedSharedPreferences, it introduces significant overhead and performance drawbacks. SafeBox addresses these challenges by providing:
-- **Memory-Mapped Speed**: Utilizes memory-mapped I/O for near-instant reads and writes.
-- **Binary Blob Encryption**: Data is encrypted and stored in a single binary blob, significantly enhancing performance.
-- **Pluggable Encryption Strategy**: Easily configurable encryption and key management mechanisms.
-- **No Per-Entry Encryption**: Reduces overhead by avoiding encryption on individual entries, unlike default Jetpack solutions.
-- **Lightweight and Modular**: Built for simplicity, scalability, and ease of maintenance.
+| Feature             | SafeBox                           | EncryptedSharedPreferences                |
+|---------------------|-----------------------------------|-------------------------------------------|
+| Initialization Time | **0.35ms** (*110x faster*)        | 38.7ms                                    |
+| Storage Format      | Memory-mapped binary file         | XML-based per-entry                       |
+| Encryption Method   | ChaCha20-Poly1305 (keys & values) | AES-SIV for keys, AES-GCM for values      |
+| Key Security        | Android Keystore-backed AES-GCM   | Android Keystore MasterKey (*deprecated*) |
+| Customization       | Pluggable cipher/key providers    | Tightly coupled                           |
 
-## Architectural Overview
+SafeBox uses **deterministic encryption** for reference keys (for fast lookup) and **non-deterministic encryption** for values (for strong security). Both powered by a single ChaCha20 key protected via AES-GCM and stored securely.
 
-| Area                 | Tech Used                                |
-|----------------------|------------------------------------------|
-| Storage Engine       | Memory-Mapped Files (`MappedByteBuffer`) |
-| Encryption           | AES (GCM/CBC), AndroidKeyStore           |
-| Concurrency          | Kotlin Coroutines                        |
-| Integrity (Optional) | HMAC-SHA256                              |
-| Serialization        | Binary format                            |
-| Testing              | Kotlin Test, Android Instrumentation     |
+### SafeBox Key Derivation & Encryption Flow
 
-## System Requirements
-- Minimum SDK 23
+```
+ [Android Keystore-backed AES-GCM Key]
+                  ↓
+       [ChaCha20-Poly1305 Key]
+              ↙       ↘
+    Reference Keys    Entry Values
+(deterministic IV)    (randomized IV)
+```
 
-## Getting Started
+Compared to EncryptedSharedPreferences:
 
-Include SafeBox as a module in your Android project and initialize it with your desired configuration:
+```
+[Android Keystore MasterKey (deprecated)]
+           ↙             ↘
+    [AES-SIV Key]    [AES-GCM Key]
+         ↓                 ↓
+   Reference Keys     Entry Values
 
-*(Detailed integration instructions will be provided upon finalizing the public API.)*
+```
+
+## Performance Benchmarks
+
+Average times measured over **100 samples** on an emulator:
+
+| Operation                    | SafeBox    | EncryptedSharedPreferences |
+|------------------------------|------------|----------------------------|
+| Write 1 entry then commit    | **1.30ms** | 1.31ms                     |
+| Read 1 entry                 | **0.39ms** | 0.50ms (*28% slower*)      |
+| Write 3 entries then commit  | **1.25ms** | 2.16ms (*73% slower*)      |
+| Read 3 entries               | **0.94ms** | 1.27ms (*35% slower*)      |
+| Write 5 entries then commit  | **2.33ms** | 3.32ms (*42% slower*)      |
+| Read 5 entries               | **1.37ms** | 2.25ms (*64% slower*)      |
+| Write 10 entries then commit | **4.73ms** | 6.28ms (*33% slower*)      |
+| Read 10 entries              | **3.29ms** | 4.07ms (*24% slower*)      |
+
+Even on **multiple single commits**, SafeBox remains faster:
+
+| Operation                    | SafeBox     | EncryptedSharedPreferences |
+|------------------------------|-------------|----------------------------|
+| Write and commit 3 entries   | **1.94ms**  | 4.9ms (*152% slower*)      |
+| Write and commit 5 entries   | **2.84ms**  | 6.91ms (*143% slower*)     |
+| Write and commit 10 entries  | **5.47ms**  | 11.27ms (*106% slower*)    |
+| Write and commit 100 entries | **33.19ms** | 71.34ms (*115% slower*)    |
+
+## Installation
+
+```kotlin
+dependencies {
+    implementation("io.github.harrytmthy-dev:safebox:1.0.0")
+}
+```
+
+## Basic Usage
+
+```kotlin
+val safeBox = SafeBox.create(context, fileName = "secure-prefs")
+
+safeBox.edit()
+    .putInt("userId", 123)
+    .putString("name", "Luna Moonlight")
+    .apply()
+
+val userId = safeBox.getInt("userId", -1)
+val email = safeBox.getString("email", null)
+```
+
+## Contributing
+
+### Update pre-hook path
+
+`scripts/` contains shared pre-hooks for formatting and test validation. To enable it locally:
+
+```bash
+git config --local core.hooksPath scripts
+chmod +x scripts/pre-commit
+chmod +x scripts/pre-push
+```
+
+### Run Spotless
+
+```bash
+./gradlew spotlessApply --init-script gradle/init.gradle.kts --no-configuration-cache
+```
+
+## License
+
+```
+MIT License
+Copyright (c) 2025 Harry Timothy Tumalewa
+```
