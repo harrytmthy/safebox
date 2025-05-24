@@ -5,7 +5,7 @@ A secure, blazing-fast alternative to `EncryptedSharedPreferences`, designed for
 ## 🚨 EncryptedSharedPreferences is Deprecated
 As of **Jetpack Security 1.1.0-alpha07 (April 9, 2025)**, `EncryptedSharedPreferences` has been deprecated with no official replacement. Without continued support from Google, it may fall behind in cryptography standards, leaving sensitive data exposed.
 
-SafeBox can help you migrate easily using the same SharedPreferences API.
+SafeBox can help you [migrate](docs/MIGRATION.md) easily using the same `SharedPreferences` API.
 
 ## Why SafeBox?
 
@@ -86,6 +86,12 @@ safeBox.edit()
 val userId = safeBox.getInt("userId", -1)
 val email = safeBox.getString("email", null)
 ```
+
+## Migrating from EncryptedSharedPreferences
+
+SafeBox is a drop-in replacement for `EncryptedSharedPreferences`.
+
+➡️ [Read the Migration Guide](docs/MIGRATION.md)
 
 ## Contributing
 
