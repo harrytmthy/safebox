@@ -5,5 +5,4 @@ plugins {
     alias(libs.plugins.dokka) apply false
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.maven.publish) apply false
-    id("com.diffplug.spotless") version "6.25.0"
 }

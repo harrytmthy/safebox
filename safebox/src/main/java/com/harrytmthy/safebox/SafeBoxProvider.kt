@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Harry Timothy Tumalewa
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.harrytmthy.safebox
 
 import android.content.Context
@@ -31,7 +47,7 @@ object SafeBoxProvider {
         keyAlias: String = SafeBox.DEFAULT_KEY_ALIAS,
         valueKeyStoreAlias: String = SafeBox.DEFAULT_VALUE_KEYSTORE_ALIAS,
         aad: ByteArray = fileName.toByteArray(),
-        ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     ) {
         if (instance == null) {
             instance = SafeBox.create(
@@ -40,7 +56,7 @@ object SafeBoxProvider {
                 keyAlias,
                 valueKeyStoreAlias,
                 aad,
-                ioDispatcher
+                ioDispatcher,
             )
         }
     }
@@ -53,7 +69,7 @@ object SafeBoxProvider {
     @JvmStatic
     fun get(): SafeBox {
         return instance ?: throw IllegalStateException(
-            "SafeBoxProvider is not initialized. Call SafeBoxProvider.init(context, fileName) in your Application class."
+            "SafeBoxProvider is not initialized. Call SafeBoxProvider.init(context, fileName) in your Application class.",
         )
     }
 

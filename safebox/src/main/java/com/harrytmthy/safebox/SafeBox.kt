@@ -330,7 +330,7 @@ public class SafeBox private constructor(
         @JvmStatic
         @Deprecated(
             message = "Use SafeBoxProvider.init(...) and SafeBoxProvider.get() instead.",
-            replaceWith = ReplaceWith("SafeBoxProvider.get()")
+            replaceWith = ReplaceWith("SafeBoxProvider.get()"),
         )
         public fun create(
             context: Context,
@@ -374,7 +374,7 @@ public class SafeBox private constructor(
         @JvmStatic
         @Deprecated(
             message = "Use SafeBoxProvider.init(...) and SafeBoxProvider.get() instead.",
-            replaceWith = ReplaceWith("SafeBoxProvider.get()")
+            replaceWith = ReplaceWith("SafeBoxProvider.get()"),
         )
         public fun create(
             context: Context,
