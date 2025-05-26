@@ -107,21 +107,7 @@ SafeBox is a drop-in replacement for `EncryptedSharedPreferences`.
 
 ## Contributing
 
-### Update pre-hook path
-
-`scripts/` contains shared pre-hooks for formatting and test validation. To enable it locally:
-
-```bash
-git config --local core.hooksPath scripts
-chmod +x scripts/pre-commit
-chmod +x scripts/pre-push
-```
-
-### Run Spotless
-
-```bash
-./gradlew spotlessApply --init-script gradle/init.gradle.kts --no-configuration-cache
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, formatting, testing, and PR guidelines.
 
 ## License
 
