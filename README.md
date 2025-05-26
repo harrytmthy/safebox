@@ -47,7 +47,7 @@ Average times measured over **100 samples** on an emulator:
 
 | Operation                    | SafeBox    | EncryptedSharedPreferences |
 |------------------------------|------------|----------------------------|
-| Write 1 entry then commit    | **1.30ms** | 1.31ms                     |
+| Write 1 entry then commit    | **0.55ms** | 1.31ms (*138% slower*)     |
 | Read 1 entry                 | **0.39ms** | 0.50ms (*28% slower*)      |
 | Write 3 entries then commit  | **1.25ms** | 2.16ms (*73% slower*)      |
 | Read 3 entries               | **0.94ms** | 1.27ms (*35% slower*)      |
@@ -64,6 +64,18 @@ Even on **multiple single commits**, SafeBox remains faster:
 | Write and commit 5 entries   | **2.84ms**  | 6.91ms (*143% slower*)     |
 | Write and commit 10 entries  | **5.47ms**  | 11.27ms (*106% slower*)    |
 | Write and commit 100 entries | **33.19ms** | 71.34ms (*115% slower*)    |
+
+<details>
+
+<summary>View Charts</summary>
+
+![Read Performance](docs/charts/read_performance_chart.png)
+
+![Write Performance](docs/charts/write_performance_chart.png)
+
+![Write then Commit Performance](docs/charts/write_commit_performance_chart.png)
+
+</details>
 
 ## Installation
 
