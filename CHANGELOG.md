@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0-alpha01] - 2025-05-26
+
+### Added
+- `SafeBoxMigrationHelper`: Allows migration from `EncryptedSharedPreferences` to `SafeBox` using `SharedPreferences` API
+
 ## [1.0.0] - 2025-05-23
 
 ### Added

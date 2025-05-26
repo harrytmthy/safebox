@@ -7,9 +7,9 @@ to your `putString().commit()` or `getInt()` usage.
 
 ## What changes?
 
-### Dagger Setup Example
+### Setup
 
-If you're using **Dagger**:
+If you're using **Dagger**, you only need to change this:
 
 ```kotlin
 @Singleton
@@ -29,7 +29,7 @@ fun provideEncryptedSharedPreferences(context: Context): SharedPreferences {
 }
 ```
 
-### To this (SafeBox):
+to this (SafeBox):
 
 ```kotlin
 @Singleton
@@ -38,15 +38,27 @@ fun provideEncryptedSharedPreferences(context: Context): SharedPreferences =
     SafeBox.create(context, PREF_FILE_NAME)
 ```
 
-No changes to the rest of your code.
-
-### Koin Setup Example
-
-If you're using **Koin**, the migration is just as seamless:
+Or if you're using **Koin**:
 
 ```kotlin
 single<SharedPreferences> {
     SafeBox.create(androidContext(), PREF_FILE_NAME)
+}
+```
+
+### Existing Data Migration
+
+If your app already stores data in `EncryptedSharedPreferences` or even plain `SharedPreferences`, you can migrate them into SafeBox with one line:
+
+```kotlin
+SafeBoxMigrationHelper.migrate(from = encryptedPrefs, to = safeBox)
+```
+
+✅ This helper is available in version 1.1.0-alpha01:
+
+```kotlin
+dependencies {
+    implementation("io.github.harrytmthy-dev:safebox:1.1.0-alpha01")
 }
 ```
 

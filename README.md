@@ -81,7 +81,7 @@ Even on **multiple single commits**, SafeBox remains faster:
 
 ```kotlin
 dependencies {
-    implementation("io.github.harrytmthy-dev:safebox:1.0.0")
+    implementation("io.github.harrytmthy-dev:safebox:1.1.0-alpha01")
 }
 ```
 

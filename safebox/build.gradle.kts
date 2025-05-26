@@ -22,7 +22,7 @@ plugins {
     id("com.vanniktech.maven.publish")
 }
 
-val safeBoxVersion = "1.0.0"
+val safeBoxVersion = "1.1.0-alpha01"
 
 group = "io.github.harrytmthy-dev"
 version = safeBoxVersion

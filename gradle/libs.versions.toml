@@ -19,7 +19,7 @@ ksp = "2.1.0-1.0.29"
 mavenPublishPlugin = "0.32.0"
 protobuf = "4.29.2"
 protobufPlugin = "0.9.4"
-safebox = "1.0.0"
+safebox = "1.1.0-alpha01"
 timber = "5.0.1"
 
 [libraries]
