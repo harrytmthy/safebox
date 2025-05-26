@@ -2,6 +2,8 @@ package com.harrytmthy.safebox
 
 import android.content.Context
 import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 
 /**
  * SafeBoxProvider is a singleton holder for a [SafeBox] instance.
@@ -29,6 +31,7 @@ object SafeBoxProvider {
         keyAlias: String = SafeBox.DEFAULT_KEY_ALIAS,
         valueKeyStoreAlias: String = SafeBox.DEFAULT_VALUE_KEYSTORE_ALIAS,
         aad: ByteArray = fileName.toByteArray(),
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO
     ) {
         if (instance == null) {
             instance = SafeBox.create(
@@ -36,7 +39,8 @@ object SafeBoxProvider {
                 fileName,
                 keyAlias,
                 valueKeyStoreAlias,
-                aad
+                aad,
+                ioDispatcher
             )
         }
     }
