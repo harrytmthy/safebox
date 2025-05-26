@@ -68,6 +68,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtimeCompose)
     implementation(libs.androidx.tracing.ktx)
     implementation(libs.androidx.window.core)
-    implementation(libs.safebox)
     implementation(libs.timber)
+    implementation(project(":safebox"))
 }

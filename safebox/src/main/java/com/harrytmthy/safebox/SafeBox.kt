@@ -328,6 +328,10 @@ public class SafeBox private constructor(
          */
         @JvmOverloads
         @JvmStatic
+        @Deprecated(
+            message = "Use SafeBoxProvider.init(...) and SafeBoxProvider.get() instead.",
+            replaceWith = ReplaceWith("SafeBoxProvider.get()")
+        )
         public fun create(
             context: Context,
             fileName: String,
@@ -368,6 +372,10 @@ public class SafeBox private constructor(
          */
         @JvmOverloads
         @JvmStatic
+        @Deprecated(
+            message = "Use SafeBoxProvider.init(...) and SafeBoxProvider.get() instead.",
+            replaceWith = ReplaceWith("SafeBoxProvider.get()")
+        )
         public fun create(
             context: Context,
             fileName: String,

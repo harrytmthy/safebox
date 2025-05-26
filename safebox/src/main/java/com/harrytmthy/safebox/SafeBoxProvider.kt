@@ -1,0 +1,64 @@
+package com.harrytmthy.safebox
+
+import android.content.Context
+import androidx.annotation.VisibleForTesting
+
+/**
+ * SafeBoxProvider is a singleton holder for a [SafeBox] instance.
+ * You must call [init] before calling [get], usually in your Application class.
+ */
+object SafeBoxProvider {
+
+    @Volatile
+    private var instance: SafeBox? = null
+
+    /**
+     * Initializes the singleton SafeBox instance.
+     *
+     * @param context Application context
+     * @param fileName Name of the file used for storage
+     * @param keyAlias Alias for key encryption
+     * @param valueKeyStoreAlias Alias for value encryption using Keystore
+     * @param aad Additional authenticated data for AES-GCM (defaults to fileName)
+     */
+    @JvmStatic
+    @Synchronized
+    fun init(
+        context: Context,
+        fileName: String,
+        keyAlias: String = SafeBox.DEFAULT_KEY_ALIAS,
+        valueKeyStoreAlias: String = SafeBox.DEFAULT_VALUE_KEYSTORE_ALIAS,
+        aad: ByteArray = fileName.toByteArray(),
+    ) {
+        if (instance == null) {
+            instance = SafeBox.create(
+                context.applicationContext,
+                fileName,
+                keyAlias,
+                valueKeyStoreAlias,
+                aad
+            )
+        }
+    }
+
+    /**
+     * Returns the initialized SafeBox instance.
+     *
+     * @throws IllegalStateException if called before [init]
+     */
+    @JvmStatic
+    fun get(): SafeBox {
+        return instance ?: throw IllegalStateException(
+            "SafeBoxProvider is not initialized. Call SafeBoxProvider.init(context, fileName) in your Application class."
+        )
+    }
+
+    /**
+     * Used only for testing to forcibly reset the instance.
+     */
+    @VisibleForTesting
+    @JvmStatic
+    fun reset() {
+        instance = null
+    }
+}
