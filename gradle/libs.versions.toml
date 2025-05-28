@@ -1,6 +1,7 @@
 [versions]
 androidGradlePlugin = "8.9.2"
 androidxActivity = "1.10.1"
+androidxAnnotation = "1.9.1"
 androidxComposeBom = "2025.04.01"
 androidxComposeRuntimeTracing = "1.8.0"
 androidxCore = "1.16.0"
@@ -24,6 +25,7 @@ timber = "5.0.1"
 
 [libraries]
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "androidxActivity" }
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "androidxComposeBom" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material3-adaptive = { group = "androidx.compose.material3.adaptive", name = "adaptive" }
