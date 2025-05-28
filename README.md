@@ -87,16 +87,67 @@ dependencies {
 
 ## Basic Usage
 
-```kotlin
-val safeBox = SafeBox.create(context, fileName = "secure-prefs")
+First, provide SafeBox as a singleton:
 
-safeBox.edit()
+```kotlin
+@Singleton
+@Provides
+fun provideEncryptedSharedPreferences(@ApplicationContext context: Context): SharedPreferences =
+    SafeBox.create(context, PREF_FILE_NAME) // Replacing EncryptedSharedPreferences
+```
+
+Or use the built-in singleton helper:
+
+```kotlin
+SafeBoxProvider.init(context, PREF_FILE_NAME)
+val prefs = SafeBoxProvider.get()
+```
+
+Then use it like any `SharedPreferences`:
+
+```kotlin
+prefs.edit()
     .putInt("userId", 123)
     .putString("name", "Luna Moonlight")
     .apply()
 
-val userId = safeBox.getInt("userId", -1)
-val email = safeBox.getString("email", null)
+val userId = prefs.getInt("userId", -1)
+val email = prefs.getString("email", null)
+```
+
+### Anti-Patterns
+
+#### ❌ Do NOT create multiple SafeBox instances with the same file name
+
+```kotlin
+class HomeViewModel @Inject constructor() : ViewModel() {
+    
+    private val safeBox = SafeBox.create(context, PREF_FILE_NAME) // ❌ New instance per ViewModel
+}
+```
+
+This may cause FileChannel conflicts, memory leaks, or stale reads across instances.
+
+---
+
+#### ⚠️ Avoid scoping SafeBox to short-lived components
+
+```kotlin
+@Module
+@InstallIn(ViewModelComponent::class) // ⚠️ New instance per ViewModel
+object SomeModule {
+    
+    @Provides
+    fun provideSafeBox(@ApplicationContext context: Context): SafeBox =
+        SafeBox.create(context, PREF_FILE_NAME)
+}
+
+class HomeViewModel @Inject constructor(private val safeBox: SafeBox) : ViewModel() {
+
+    override fun onCleared() {
+        safeBox.close() // Technically safe, but why re-create SafeBox for every ViewModel?
+    }
+}
 ```
 
 ## Migrating from EncryptedSharedPreferences

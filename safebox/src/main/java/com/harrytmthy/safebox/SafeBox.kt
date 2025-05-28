@@ -317,6 +317,10 @@ public class SafeBox private constructor(
          *
          * This method handles secure initialization and is recommended for most use cases.
          *
+         * **Common pitfalls:**
+         * - Do NOT create multiple SafeBox instances with the same file name.
+         * - Avoid scoping SafeBox to short-lived components (e.g. ViewModel).
+         *
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
          * @param keyAlias The identifier for storing the key (used to locate its encrypted form)
@@ -328,10 +332,6 @@ public class SafeBox private constructor(
          */
         @JvmOverloads
         @JvmStatic
-        @Deprecated(
-            message = "Use SafeBoxProvider.init(...) and SafeBoxProvider.get() instead.",
-            replaceWith = ReplaceWith("SafeBoxProvider.get()"),
-        )
         public fun create(
             context: Context,
             fileName: String,
@@ -362,6 +362,10 @@ public class SafeBox private constructor(
          * This is useful for testing or advanced use cases where you want to control
          * the encryption mechanism directly.
          *
+         * **Common pitfalls:**
+         * - Do NOT create multiple SafeBox instances with the same file name.
+         * - Avoid scoping SafeBox to short-lived components (e.g. ViewModel).
+         *
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
          * @param keyCipherProvider Cipher used for encrypting and decrypting keys
@@ -372,10 +376,6 @@ public class SafeBox private constructor(
          */
         @JvmOverloads
         @JvmStatic
-        @Deprecated(
-            message = "Use SafeBoxProvider.init(...) and SafeBoxProvider.get() instead.",
-            replaceWith = ReplaceWith("SafeBoxProvider.get()"),
-        )
         public fun create(
             context: Context,
             fileName: String,
