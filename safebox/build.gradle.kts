@@ -53,13 +53,14 @@ android {
 }
 
 dependencies {
-    implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.annotation)
     implementation(libs.bouncy.castle.provider)
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
 
+    androidTestImplementation(libs.androidx.security.crypto)
     androidTestImplementation(libs.androidx.test.ext)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.kotlin.test)
