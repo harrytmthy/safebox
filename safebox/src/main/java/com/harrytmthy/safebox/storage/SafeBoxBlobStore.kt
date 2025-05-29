@@ -45,8 +45,10 @@ import java.util.concurrent.atomic.AtomicReference
  */
 internal class SafeBoxBlobStore private constructor(
     ioDispatcher: CoroutineDispatcher,
-    private val channel: FileChannel,
+    private val file: File,
 ) {
+
+    private val channel = RandomAccessFile(file, "rw").channel
 
     private val buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, BUFFER_CAPACITY.toLong())
 
@@ -167,7 +169,7 @@ internal class SafeBoxBlobStore private constructor(
      *
      * @return a set of [Bytes] keys that were removed, used for notifying listeners.
      */
-    suspend fun deleteAll(): Set<Bytes> =
+    internal suspend fun deleteAll(): Set<Bytes> =
         writeMutex.withLock {
             buffer.position(0)
             buffer.put(ByteArray(nextWritePosition))
@@ -177,6 +179,16 @@ internal class SafeBoxBlobStore private constructor(
             entryMetas.clear()
             keys
         }
+
+    /**
+     * Returns the name of the backing file, excluding its extension.
+     *
+     * This is used by the internal registry to uniquely identify open SafeBox instances
+     * and prevent concurrent access to the same file.
+     *
+     * @return The file name without extension.
+     */
+    internal fun getFileName(): String = file.nameWithoutExtension
 
     /**
      * Closes the underlying file channel and releases associated resources.
@@ -284,8 +296,7 @@ internal class SafeBoxBlobStore private constructor(
             if (!file.exists()) {
                 file.createNewFile()
             }
-            val raf = RandomAccessFile(file, "rw")
-            return SafeBoxBlobStore(ioDispatcher, raf.channel)
+            return SafeBoxBlobStore(ioDispatcher, file)
         }
     }
 }

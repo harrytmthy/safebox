@@ -198,4 +198,9 @@ class SafeBoxBlobStoreTest {
         assertContentEquals(secondValue, result[key])
         assertTrue(blobStore.entryMetas.containsKey(key))
     }
+
+    @Test
+    fun getFileName_shouldReturnFileName() {
+        assertEquals(fileName, blobStore.getFileName())
+    }
 }

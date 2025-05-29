@@ -32,6 +32,7 @@ import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.extensions.toEncodedByteArray
 import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
+import com.harrytmthy.safebox.registry.SafeBoxBlobFileRegistry
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.storage.SafeBoxBlobStore
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
@@ -150,12 +151,17 @@ public class SafeBox private constructor(
     }
 
     /**
-     * Releases resources and closes the underlying file channel.
+     * Immediately closes the underlying file channel and releases resources.
+     * Also unregisters the file from [SafeBoxBlobFileRegistry], allowing a new SafeBox
+     * instance to be created with the same filename.
      *
-     * Call this when SafeBox is no longer in use to ensure file handles are cleaned up.
-     * Failing to do so may result in resource leaks or file corruption.
+     * ⚠️ Once closed, this instance becomes *permanently unusable*. Any further access will fail.
+     *
+     * ⚠️ Only use this method when you're certain that no writes are in progress.
+     * Closing during an active write can result in data corruption or incomplete persistence.
      */
     public fun close() {
+        SafeBoxBlobFileRegistry.unregister(blobStore.getFileName())
         blobStore.close()
     }
 
@@ -329,9 +335,11 @@ public class SafeBox private constructor(
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
          *
          * @return A fully configured [SafeBox] instance
+         * @throws IllegalStateException if the file is already registered.
          */
         @JvmOverloads
         @JvmStatic
+        @Throws(IllegalStateException::class)
         public fun create(
             context: Context,
             fileName: String,
@@ -340,6 +348,7 @@ public class SafeBox private constructor(
             additionalAuthenticatedData: ByteArray = fileName.toByteArray(),
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         ): SafeBox {
+            SafeBoxBlobFileRegistry.register(fileName)
             val aesGcmCipherProvider = AesGcmCipherProvider.create(
                 alias = valueKeyStoreAlias,
                 aad = additionalAuthenticatedData,
@@ -353,7 +362,8 @@ public class SafeBox private constructor(
             )
             val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
             val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
-            return create(context, fileName, keyCipherProvider, valueCipherProvider, ioDispatcher)
+            val blobStore = SafeBoxBlobStore.create(context, fileName, ioDispatcher)
+            return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, ioDispatcher)
         }
 
         /**
@@ -373,9 +383,11 @@ public class SafeBox private constructor(
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
          *
          * @return A [SafeBox] instance with the provided [CipherProvider]
+         * @throws IllegalStateException if the file is already registered.
          */
         @JvmOverloads
         @JvmStatic
+        @Throws(IllegalStateException::class)
         public fun create(
             context: Context,
             fileName: String,
@@ -383,6 +395,7 @@ public class SafeBox private constructor(
             valueCipherProvider: CipherProvider,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         ): SafeBox {
+            SafeBoxBlobFileRegistry.register(fileName)
             val blobStore = SafeBoxBlobStore.create(context, fileName, ioDispatcher)
             return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, ioDispatcher)
         }
