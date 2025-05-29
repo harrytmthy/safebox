@@ -53,6 +53,7 @@ class SafeBoxTest {
         safeBox.edit()
             .clear()
             .commit()
+        safeBox.close()
 
         KeyStore.getInstance("AndroidKeyStore").apply {
             load(null)
