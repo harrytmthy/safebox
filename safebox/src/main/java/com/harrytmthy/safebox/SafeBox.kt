@@ -33,6 +33,8 @@ import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.extensions.toEncodedByteArray
 import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
 import com.harrytmthy.safebox.registry.SafeBoxBlobFileRegistry
+import com.harrytmthy.safebox.state.SafeBoxState
+import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.storage.SafeBoxBlobStore
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
@@ -333,6 +335,7 @@ public class SafeBox private constructor(
          * @param valueKeyStoreAlias The Android Keystore alias used for AES-GCM key generation
          * @param additionalAuthenticatedData Optional AAD bound to the AES-GCM (default: fileName)
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
+         * @param stateListener The listener to observe instance-bound state transitions
          *
          * @return A fully configured [SafeBox] instance
          * @throws IllegalStateException if the file is already registered.
@@ -347,8 +350,10 @@ public class SafeBox private constructor(
             valueKeyStoreAlias: String = DEFAULT_VALUE_KEYSTORE_ALIAS,
             additionalAuthenticatedData: ByteArray = fileName.toByteArray(),
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
             SafeBoxBlobFileRegistry.register(fileName)
+            stateListener?.onStateChanged(SafeBoxState.IDLE)
             val aesGcmCipherProvider = AesGcmCipherProvider.create(
                 alias = valueKeyStoreAlias,
                 aad = additionalAuthenticatedData,
@@ -362,7 +367,7 @@ public class SafeBox private constructor(
             )
             val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
             val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
-            val blobStore = SafeBoxBlobStore.create(context, fileName, ioDispatcher)
+            val blobStore = SafeBoxBlobStore.create(context, fileName, ioDispatcher, stateListener)
             return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, ioDispatcher)
         }
 
@@ -381,6 +386,7 @@ public class SafeBox private constructor(
          * @param keyCipherProvider Cipher used for encrypting and decrypting keys
          * @param valueCipherProvider Cipher used for encrypting and decrypting values
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
+         * @param stateListener The listener to observe instance-bound state transitions
          *
          * @return A [SafeBox] instance with the provided [CipherProvider]
          * @throws IllegalStateException if the file is already registered.
@@ -394,9 +400,10 @@ public class SafeBox private constructor(
             keyCipherProvider: CipherProvider,
             valueCipherProvider: CipherProvider,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
             SafeBoxBlobFileRegistry.register(fileName)
-            val blobStore = SafeBoxBlobStore.create(context, fileName, ioDispatcher)
+            val blobStore = SafeBoxBlobStore.create(context, fileName, ioDispatcher, stateListener)
             return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, ioDispatcher)
         }
     }
