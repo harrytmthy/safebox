@@ -20,12 +20,15 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.harrytmthy.safebox.extensions.toBytes
+import com.harrytmthy.safebox.state.SafeBoxState
+import com.harrytmthy.safebox.state.SafeBoxStateListener
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -40,12 +43,22 @@ class SafeBoxBlobStoreTest {
 
     private val fileName: String = "safebox_blob_test"
 
-    private val blobStore = SafeBoxBlobStore.create(context, fileName, UnconfinedTestDispatcher())
+    private val observedStates = CopyOnWriteArrayList<SafeBoxState>()
+
+    private val stateListener = SafeBoxStateListener(observedStates::add)
+
+    private val blobStore = SafeBoxBlobStore.create(
+        context,
+        fileName,
+        UnconfinedTestDispatcher(),
+        stateListener,
+    )
 
     @After
     fun teardown() {
         blobStore.close()
         File(context.noBackupFilesDir, "$fileName.bin").delete()
+        observedStates.clear()
     }
 
     @Test
@@ -202,5 +215,22 @@ class SafeBoxBlobStoreTest {
     @Test
     fun getFileName_shouldReturnFileName() {
         assertEquals(fileName, blobStore.getFileName())
+    }
+
+    @Test
+    fun write_shouldEmitWritingAndIdleStates() = runTest {
+        val key = "alpha".toByteArray().toBytes()
+        val value = "123".toByteArray()
+
+        blobStore.write(key, value)
+
+        assertEquals(listOf(SafeBoxState.WRITING, SafeBoxState.IDLE), observedStates)
+    }
+
+    @Test
+    fun close_shouldEmitClosedState() {
+        blobStore.close()
+
+        assertEquals(SafeBoxState.CLOSED, observedStates.last())
     }
 }

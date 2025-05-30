@@ -21,6 +21,8 @@ import android.util.Log
 import androidx.annotation.VisibleForTesting
 import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
+import com.harrytmthy.safebox.state.SafeBoxState
+import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.ERROR
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
@@ -46,6 +48,7 @@ import java.util.concurrent.atomic.AtomicReference
 internal class SafeBoxBlobStore private constructor(
     ioDispatcher: CoroutineDispatcher,
     private val file: File,
+    private val stateListener: SafeBoxStateListener?,
 ) {
 
     private val channel = RandomAccessFile(file, "rw").channel
@@ -121,7 +124,7 @@ internal class SafeBoxBlobStore private constructor(
      * @throws IllegalStateException if the blob file does not have enough remaining capacity.
      */
     internal suspend fun write(encryptedKey: Bytes, encryptedValue: ByteArray) {
-        writeMutex.withLock {
+        writeMutex.withLockAndStateUpdates {
             if (!entryMetas.contains(encryptedKey)) {
                 writeAtOffset(encryptedKey, encryptedValue)
             } else {
@@ -139,7 +142,7 @@ internal class SafeBoxBlobStore private constructor(
      * @param encryptedKeys Vararg array of keys to delete.
      */
     internal suspend fun delete(vararg encryptedKeys: Bytes) {
-        writeMutex.withLock {
+        writeMutex.withLockAndStateUpdates {
             val metas = entryMetas.values.toList()
             for (encryptedKey in encryptedKeys) {
                 val currentIndex = entryMetas.keys.indexOf(encryptedKey)
@@ -170,7 +173,7 @@ internal class SafeBoxBlobStore private constructor(
      * @return a set of [Bytes] keys that were removed, used for notifying listeners.
      */
     internal suspend fun deleteAll(): Set<Bytes> =
-        writeMutex.withLock {
+        writeMutex.withLockAndStateUpdates {
             buffer.position(0)
             buffer.put(ByteArray(nextWritePosition))
             buffer.force()
@@ -196,6 +199,7 @@ internal class SafeBoxBlobStore private constructor(
      */
     internal fun close() {
         channel.close()
+        stateListener?.onStateChanged(SafeBoxState.CLOSED)
     }
 
     private fun writeAtOffset(
@@ -280,6 +284,20 @@ internal class SafeBoxBlobStore private constructor(
         }
     }
 
+    /**
+     * Wraps the given [action] with mutex locking and emits SafeBox state transitions.
+     *
+     * This ensures that any critical write operation is surrounded by `WRITING` and `IDLE` events,
+     * which helps external listeners track write progress.
+     */
+    private suspend inline fun <T> Mutex.withLockAndStateUpdates(crossinline action: () -> T): T =
+        withLock {
+            stateListener?.onStateChanged(SafeBoxState.WRITING)
+            val result = action()
+            stateListener?.onStateChanged(SafeBoxState.IDLE)
+            result
+        }
+
     @VisibleForTesting
     internal data class EntryMeta(val offset: Int, val size: Int)
 
@@ -291,12 +309,13 @@ internal class SafeBoxBlobStore private constructor(
             context: Context,
             fileName: String,
             ioDispatcher: CoroutineDispatcher,
+            stateListener: SafeBoxStateListener?,
         ): SafeBoxBlobStore {
             val file = File(context.noBackupFilesDir, "$fileName.bin")
             if (!file.exists()) {
                 file.createNewFile()
             }
-            return SafeBoxBlobStore(ioDispatcher, file)
+            return SafeBoxBlobStore(ioDispatcher, file, stateListener)
         }
     }
 }
