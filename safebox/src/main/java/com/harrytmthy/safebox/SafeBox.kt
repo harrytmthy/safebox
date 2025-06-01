@@ -160,11 +160,30 @@ public class SafeBox private constructor(
      * ⚠️ Once closed, this instance becomes *permanently unusable*. Any further access will fail.
      *
      * ⚠️ Only use this method when you're certain that no writes are in progress.
+     *
      * Closing during an active write can result in data corruption or incomplete persistence.
      */
     public fun close() {
         SafeBoxBlobFileRegistry.unregister(blobStore.getFileName())
         blobStore.close()
+    }
+
+    /**
+     * Closes the underlying file channel only after all pending writes have completed.
+     * Also unregisters the file from [SafeBoxBlobFileRegistry], allowing a new SafeBox
+     * instance to be created with the same filename.
+     *
+     * ⚠️ Once closed, this instance becomes *permanently unusable*. Any further access will fail.
+     *
+     * ✅ This is the recommended way to dispose of SafeBox in async environments.
+     *
+     * Internally, this launches a coroutine on [safeBoxScope] to wait until the SafeBox
+     * becomes idle before releasing resources.
+     */
+    public fun closeWhenIdle() {
+        safeBoxScope.launch(ioDispatcher) {
+            blobStore.closeWhenIdle()
+        }
     }
 
     override fun getAll(): Map<String, Any?> {

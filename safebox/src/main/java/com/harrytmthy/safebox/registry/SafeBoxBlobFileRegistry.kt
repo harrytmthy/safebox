@@ -17,6 +17,7 @@
 package com.harrytmthy.safebox.registry
 
 import com.harrytmthy.safebox.SafeBox
+import com.harrytmthy.safebox.state.SafeBoxGlobalStateObserver
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
@@ -27,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap
  * This ensures thread safety and prevents corruption due to concurrent `FileChannel` access.
  *
  * This registry is internal-only and not intended for external observation.
- * Please use [SafeBoxStateObserver] to listen for state changes.
+ * Please use [SafeBoxGlobalStateObserver] to listen for state changes.
  */
 internal object SafeBoxBlobFileRegistry {
 
