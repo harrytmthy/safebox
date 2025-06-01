@@ -21,12 +21,22 @@ import android.util.Log
 import androidx.annotation.VisibleForTesting
 import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
+import com.harrytmthy.safebox.state.SafeBoxGlobalStateObserver
+import com.harrytmthy.safebox.state.SafeBoxGlobalStateObserver.getCurrentState
 import com.harrytmthy.safebox.state.SafeBoxState
+import com.harrytmthy.safebox.state.SafeBoxState.CLOSED
+import com.harrytmthy.safebox.state.SafeBoxState.IDLE
+import com.harrytmthy.safebox.state.SafeBoxState.STARTING
+import com.harrytmthy.safebox.state.SafeBoxState.WRITING
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.ERROR
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.dropWhile
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -66,12 +76,14 @@ internal class SafeBoxBlobStore private constructor(
 
     private val writeMutex = Mutex()
 
+    private val pendingWriteCount = MutableStateFlow(0)
+
     private val nextWritePosition: Int
         get() = entryMetas.values.lastOrNull()?.run { offset + size } ?: 0
 
     init {
         safeBoxScope.launch(ioDispatcher) {
-            writeMutex.withLock {
+            writeMutex.withLockAndStateUpdates(initialState = STARTING) {
                 var offset = 0
                 while (offset + HEADER_SIZE <= buffer.capacity()) {
                     buffer.position(offset)
@@ -199,7 +211,17 @@ internal class SafeBoxBlobStore private constructor(
      */
     internal fun close() {
         channel.close()
-        stateListener?.onStateChanged(SafeBoxState.CLOSED)
+        stateListener?.onStateChanged(CLOSED)
+        SafeBoxGlobalStateObserver.updateState(getFileName(), CLOSED)
+    }
+
+    internal suspend fun closeWhenIdle() {
+        if (pendingWriteCount.value == 0 || getCurrentState(getFileName()) == STARTING) {
+            close()
+            return
+        }
+        pendingWriteCount.dropWhile { it != 0 }.first()
+        close()
     }
 
     private fun writeAtOffset(
@@ -285,18 +307,28 @@ internal class SafeBoxBlobStore private constructor(
     }
 
     /**
-     * Wraps the given [action] with mutex locking and emits SafeBox state transitions.
-     *
-     * This ensures that any critical write operation is surrounded by `WRITING` and `IDLE` events,
-     * which helps external listeners track write progress.
+     * Wraps the given [action] with a mutex lock and emits corresponding state transitions.
+     * This allows external listeners to track internal state changes.
      */
-    private suspend inline fun <T> Mutex.withLockAndStateUpdates(crossinline action: () -> T): T =
-        withLock {
-            stateListener?.onStateChanged(SafeBoxState.WRITING)
+    private suspend inline fun <T> Mutex.withLockAndStateUpdates(
+        initialState: SafeBoxState = WRITING,
+        crossinline action: () -> T,
+    ): T {
+        pendingWriteCount.update { it + 1 }
+        return withLock {
+            if (getCurrentState(getFileName()) != initialState) {
+                stateListener?.onStateChanged(initialState)
+                SafeBoxGlobalStateObserver.updateState(getFileName(), initialState)
+            }
             val result = action()
-            stateListener?.onStateChanged(SafeBoxState.IDLE)
+            pendingWriteCount.update { it - 1 }
+            if (pendingWriteCount.value == 0) {
+                stateListener?.onStateChanged(IDLE)
+                SafeBoxGlobalStateObserver.updateState(getFileName(), IDLE)
+            }
             result
         }
+    }
 
     @VisibleForTesting
     internal data class EntryMeta(val offset: Int, val size: Int)

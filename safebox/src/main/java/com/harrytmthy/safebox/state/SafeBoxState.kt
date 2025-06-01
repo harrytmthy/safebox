@@ -29,20 +29,29 @@ import com.harrytmthy.safebox.SafeBox
 public enum class SafeBoxState {
 
     /**
-     * Indicates that SafeBox is idle and not currently writing to disk.
-     * This is the default resting state.
+     * Indicates that SafeBox has been successfully created and currently loading persisted data
+     * from disk into memory.
+     *
+     * During this state, SafeBox is not yet ready to serve read or write operations.
+     * Any read/write call will be suspended until the state transitions to [IDLE].
+     */
+    STARTING,
+
+    /**
+     * Indicates that SafeBox is ready and currently idle, with no active write operations.
+     * This is the default state after initialization completes and between writes.
      */
     IDLE,
 
     /**
-     * Indicates that SafeBox is performing a write operation.
+     * Indicates that SafeBox is currently writing data to disk.
      * Avoid closing or deleting the SafeBox during this time.
      */
     WRITING,
 
     /**
      * Indicates that SafeBox has been closed and is no longer usable.
-     * Once closed, a SafeBox instance cannot be reused.
+     * To access the same file again, a new SafeBox instance must be created.
      */
     CLOSED,
 }
