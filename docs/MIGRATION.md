@@ -54,13 +54,7 @@ If your app already stores data in `EncryptedSharedPreferences` or even plain `S
 SafeBoxMigrationHelper.migrate(from = encryptedPrefs, to = safeBox)
 ```
 
-✅ This helper is available in version 1.1.0-alpha01:
-
-```kotlin
-dependencies {
-    implementation("io.github.harrytmthy-dev:safebox:1.1.0-alpha01")
-}
-```
+✅ This helper is available since version 1.1.0-alpha01.
 
 ## Still unsure?
 

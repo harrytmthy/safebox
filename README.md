@@ -45,6 +45,16 @@ Compared to EncryptedSharedPreferences:
 
 Average times measured over **100 samples** on an emulator:
 
+![Read Performance](docs/charts/read_performance_chart.png)
+
+![Write Performance](docs/charts/write_performance_chart.png)
+
+![Write then Commit Performance](docs/charts/write_commit_performance_chart.png)
+
+<details>
+
+<summary>📊 Comparison Tables</summary>
+
 | Operation                    | SafeBox    | EncryptedSharedPreferences |
 |------------------------------|------------|----------------------------|
 | Write 1 entry then commit    | **0.55ms** | 1.31ms (*138% slower*)     |
@@ -65,23 +75,13 @@ Even on **multiple single commits**, SafeBox remains faster:
 | Write and commit 10 entries  | **5.47ms**  | 11.27ms (*106% slower*)    |
 | Write and commit 100 entries | **33.19ms** | 71.34ms (*115% slower*)    |
 
-<details>
-
-<summary>View Charts</summary>
-
-![Read Performance](docs/charts/read_performance_chart.png)
-
-![Write Performance](docs/charts/write_performance_chart.png)
-
-![Write then Commit Performance](docs/charts/write_commit_performance_chart.png)
-
 </details>
 
 ## Installation
 
 ```kotlin
 dependencies {
-    implementation("io.github.harrytmthy-dev:safebox:1.1.0-alpha01")
+    implementation("io.github.harrytmthy-dev:safebox:1.1.0-alpha02")
 }
 ```
 
@@ -93,14 +93,7 @@ First, provide SafeBox as a singleton:
 @Singleton
 @Provides
 fun provideEncryptedSharedPreferences(@ApplicationContext context: Context): SharedPreferences =
-    SafeBox.create(context, PREF_FILE_NAME) // Replacing EncryptedSharedPreferences
-```
-
-Or use the built-in singleton helper:
-
-```kotlin
-SafeBoxProvider.init(context, PREF_FILE_NAME)
-val prefs = SafeBoxProvider.get()
+    SafeBox.create(context, PREF_FILE_NAME) // Ensuring single instance per file
 ```
 
 Then use it like any `SharedPreferences`:
@@ -115,14 +108,16 @@ val userId = prefs.getInt("userId", -1)
 val email = prefs.getString("email", null)
 ```
 
-### Anti-Patterns
+<details>
 
-#### ❌ Do NOT create multiple SafeBox instances with the same file name
+<summary>⚠️ Anti-Patterns</summary>
+
+#### ❌ Do NOT create multiple SafeBox instances with the same file name before closing the previous one
 
 ```kotlin
-class HomeViewModel @Inject constructor() : ViewModel() {
-    
-    private val safeBox = SafeBox.create(context, PREF_FILE_NAME) // ❌ New instance per ViewModel
+fun saveUsername(value: String) {
+    SafeBox.create(context, PREF_FILE_NAME)
+        .edit { putString("username", value) } // ❌ New instance per function call
 }
 ```
 
@@ -145,9 +140,60 @@ object SomeModule {
 class HomeViewModel @Inject constructor(private val safeBox: SafeBox) : ViewModel() {
 
     override fun onCleared() {
-        safeBox.close() // Technically safe, but why re-create SafeBox for every ViewModel?
+        safeBox.closeWhenIdle() // Technically safe, but why re-create SafeBox for every ViewModel?
     }
 }
+```
+
+</details>
+
+### Observing State Changes
+
+You can observe SafeBox lifecycle state transitions (`STARTING`, `WRITING`, `IDLE`, `CLOSED`) in two ways:
+
+#### 1. Instance-bound listener
+
+```kotlin
+val safeBox = SafeBox.create(
+    context = context,
+    fileName = PREF_FILE_NAME,
+    listener = SafeBoxStateListener { state ->
+        when (state) {
+            STARTING -> trackStart()    // Loading data into memory
+            IDLE     -> trackIdle()     // No active operations
+            WRITING  -> trackWrite()    // Writing to disk
+            CLOSED   -> trackClose()    // Instance is no longer usable
+        }
+    }
+)
+```
+
+#### 2. Global observer
+
+Manually add listeners by file name:
+
+```kotlin
+val listener = SafeBoxStateListener { state ->
+    when (state) {
+        STARTING -> trackStart()    // Loading data into memory
+        IDLE     -> trackIdle()     // No active operations
+        WRITING  -> trackWrite()    // Writing to disk
+        CLOSED   -> trackClose()    // Instance is no longer usable
+    }
+}
+SafeBoxGlobalStateObserver.addListener(PREF_FILE_NAME, listener)
+```
+
+and remove it when it's no longer needed:
+
+```kotlin
+SafeBoxGlobalStateObserver.removeListener(PREF_FILE_NAME, listener)
+```
+
+You can also query the current state at any time:
+
+```kotlin
+val state = SafeBoxGlobalStateObserver.getCurrentState(PREF_FILE_NAME)
 ```
 
 ## Migrating from EncryptedSharedPreferences

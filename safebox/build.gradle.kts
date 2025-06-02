@@ -22,10 +22,8 @@ plugins {
     id("com.vanniktech.maven.publish")
 }
 
-val safeBoxVersion = "1.1.0-alpha01"
-
 group = "io.github.harrytmthy-dev"
-version = safeBoxVersion
+version = "1.1.0-alpha02"
 
 android {
     namespace = "com.harrytmthy.safebox"

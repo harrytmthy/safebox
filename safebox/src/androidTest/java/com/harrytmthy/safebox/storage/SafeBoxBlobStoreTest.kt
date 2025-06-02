@@ -26,7 +26,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -222,7 +221,7 @@ class SafeBoxBlobStoreTest {
     }
 
     @Test
-    fun write_shouldEmitWritingAndIdleStates() = runBlocking {
+    fun write_shouldEmitWritingAndIdleStates() = runTest {
         buildList {
             repeat(10) {
                 add(

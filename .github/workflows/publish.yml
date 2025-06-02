@@ -1,0 +1,43 @@
+name: Publish to Maven Central
+
+on:
+  push:
+    tags:
+      - 'v*'  # triggers on v1.1.0, v2.0.0-beta01, etc.
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish SafeBox to Maven Central
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare GPG directory
+        run: mkdir -p /home/runner/.gnupg && chmod 700 /home/runner/.gnupg
+
+      - name: Import GPG key
+        run: echo "${{ secrets.SIGNING_SECRET_KEY_RING_BASE64 }}" | base64 -d > /home/runner/.gnupg/secring.gpg
+
+      - name: Set GPG key file permissions
+        run: chmod 600 /home/runner/.gnupg/secring.gpg
+
+      - name: Publish to Maven Central
+        run: ./gradlew publishToMavenCentral --no-configuration-cache --stacktrace
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signing.keyId: ${{ secrets.SIGNING_KEY_ID }}
+          ORG_GRADLE_PROJECT_signing.password: ${{ secrets.SIGNING_PASSWORD }}
+          ORG_GRADLE_PROJECT_signing.secretKeyRingFile: /home/runner/.gnupg/secring.gpg
