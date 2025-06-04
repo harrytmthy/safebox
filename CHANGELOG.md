@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0-beta01] - 2025-06-04
+
+### Added
+- **SafeBoxStateManager** is now the sole authority over lifecycle states (`STARTING`, `WRITING`, `IDLE`, `CLOSED`). It tracks concurrent edits, coordinates safe apply/commit transitions, and guarantees deterministic closure in `closeWhenIdle()`. ([#17](https://github.com/harrytmthy-dev/safebox/issues/17))
+- **Write guard after closure:** Once `SafeBox` transitions to `CLOSED`, all subsequent write operations (`apply()` or `commit()`) are safely blocked. Prevents late `WRITING` emissions and ensures lifecycle integrity. ([#19](https://github.com/harrytmthy-dev/safebox/issues/19))
+
+### Fixed
+- GPG signing and secret injection issues in the Maven publish pipeline, resolving deployment failure from alpha02. ([PR #16](https://github.com/harrytmthy-dev/safebox/pull/16))
+
 ## [1.1.0-alpha02] - 2025-06-02
 
 ### Added
