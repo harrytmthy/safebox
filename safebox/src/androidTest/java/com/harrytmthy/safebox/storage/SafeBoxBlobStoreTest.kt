@@ -22,10 +22,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.state.SafeBoxState
 import com.harrytmthy.safebox.state.SafeBoxStateListener
-import kotlinx.coroutines.Dispatchers
+import com.harrytmthy.safebox.state.SafeBoxStateManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -53,8 +51,7 @@ class SafeBoxBlobStoreTest {
     private val blobStore = SafeBoxBlobStore.create(
         context,
         fileName,
-        UnconfinedTestDispatcher(),
-        stateListener,
+        SafeBoxStateManager(fileName, stateListener, UnconfinedTestDispatcher()),
     )
 
     @After
@@ -221,64 +218,10 @@ class SafeBoxBlobStoreTest {
     }
 
     @Test
-    fun write_shouldEmitWritingAndIdleStates() = runTest {
-        buildList {
-            repeat(10) {
-                add(
-                    launch(Dispatchers.Default) {
-                        blobStore.write("alpha".toByteArray().toBytes(), "123".toByteArray())
-                    },
-                )
-            }
-        }.joinAll()
-
+    fun init_shouldEmitStartingState() {
         val expected = listOf(
             SafeBoxState.STARTING,
             SafeBoxState.IDLE,
-            SafeBoxState.WRITING,
-            SafeBoxState.IDLE,
-        )
-        assertEquals(expected, observedStates)
-    }
-
-    @Test
-    fun close_shouldEmitClosedState() {
-        blobStore.close()
-
-        val expected = listOf(
-            SafeBoxState.STARTING,
-            SafeBoxState.IDLE,
-            SafeBoxState.CLOSED,
-        )
-        assertEquals(expected, observedStates)
-    }
-
-    @Test
-    fun closeWhenIdle_shouldWaitUntilWritesAreDone() = runTest {
-        buildList {
-            repeat(5) {
-                add(
-                    launch(Dispatchers.Default) {
-                        blobStore.write("alpha".toByteArray().toBytes(), "123".toByteArray())
-                    },
-                )
-            }
-            add(launch(Dispatchers.Default) { blobStore.closeWhenIdle() })
-            repeat(5) {
-                add(
-                    launch(Dispatchers.Default) {
-                        blobStore.write("alpha".toByteArray().toBytes(), "123".toByteArray())
-                    },
-                )
-            }
-        }.joinAll()
-
-        val expected = listOf(
-            SafeBoxState.STARTING,
-            SafeBoxState.IDLE,
-            SafeBoxState.WRITING,
-            SafeBoxState.IDLE,
-            SafeBoxState.CLOSED,
         )
         assertEquals(expected, observedStates)
     }

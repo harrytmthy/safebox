@@ -19,25 +19,11 @@ package com.harrytmthy.safebox.storage
 import android.content.Context
 import android.util.Log
 import androidx.annotation.VisibleForTesting
-import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
-import com.harrytmthy.safebox.state.SafeBoxGlobalStateObserver
-import com.harrytmthy.safebox.state.SafeBoxGlobalStateObserver.getCurrentState
-import com.harrytmthy.safebox.state.SafeBoxState
-import com.harrytmthy.safebox.state.SafeBoxState.CLOSED
-import com.harrytmthy.safebox.state.SafeBoxState.IDLE
-import com.harrytmthy.safebox.state.SafeBoxState.STARTING
-import com.harrytmthy.safebox.state.SafeBoxState.WRITING
-import com.harrytmthy.safebox.state.SafeBoxStateListener
+import com.harrytmthy.safebox.state.SafeBoxStateManager
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.ERROR
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.dropWhile
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -56,9 +42,8 @@ import java.util.concurrent.atomic.AtomicReference
  * [keyLength:Short][valueLength:Int][keyBytes:ByteArray][valueBytes:ByteArray]
  */
 internal class SafeBoxBlobStore private constructor(
-    ioDispatcher: CoroutineDispatcher,
+    stateManager: SafeBoxStateManager,
     private val file: File,
-    private val stateListener: SafeBoxStateListener?,
 ) {
 
     private val channel = RandomAccessFile(file, "rw").channel
@@ -76,14 +61,12 @@ internal class SafeBoxBlobStore private constructor(
 
     private val writeMutex = Mutex()
 
-    private val pendingWriteCount = MutableStateFlow(0)
-
     private val nextWritePosition: Int
         get() = entryMetas.values.lastOrNull()?.run { offset + size } ?: 0
 
     init {
-        safeBoxScope.launch(ioDispatcher) {
-            writeMutex.withLockAndStateUpdates(initialState = STARTING) {
+        stateManager.launchWithStartingState {
+            writeMutex.withLock {
                 var offset = 0
                 while (offset + HEADER_SIZE <= buffer.capacity()) {
                     buffer.position(offset)
@@ -136,7 +119,7 @@ internal class SafeBoxBlobStore private constructor(
      * @throws IllegalStateException if the blob file does not have enough remaining capacity.
      */
     internal suspend fun write(encryptedKey: Bytes, encryptedValue: ByteArray) {
-        writeMutex.withLockAndStateUpdates {
+        writeMutex.withLock {
             if (!entryMetas.contains(encryptedKey)) {
                 writeAtOffset(encryptedKey, encryptedValue)
             } else {
@@ -154,7 +137,7 @@ internal class SafeBoxBlobStore private constructor(
      * @param encryptedKeys Vararg array of keys to delete.
      */
     internal suspend fun delete(vararg encryptedKeys: Bytes) {
-        writeMutex.withLockAndStateUpdates {
+        writeMutex.withLock {
             val metas = entryMetas.values.toList()
             for (encryptedKey in encryptedKeys) {
                 val currentIndex = entryMetas.keys.indexOf(encryptedKey)
@@ -185,7 +168,7 @@ internal class SafeBoxBlobStore private constructor(
      * @return a set of [Bytes] keys that were removed, used for notifying listeners.
      */
     internal suspend fun deleteAll(): Set<Bytes> =
-        writeMutex.withLockAndStateUpdates {
+        writeMutex.withLock {
             buffer.position(0)
             buffer.put(ByteArray(nextWritePosition))
             buffer.force()
@@ -211,17 +194,6 @@ internal class SafeBoxBlobStore private constructor(
      */
     internal fun close() {
         channel.close()
-        stateListener?.onStateChanged(CLOSED)
-        SafeBoxGlobalStateObserver.updateState(getFileName(), CLOSED)
-    }
-
-    internal suspend fun closeWhenIdle() {
-        if (pendingWriteCount.value == 0 || getCurrentState(getFileName()) == STARTING) {
-            close()
-            return
-        }
-        pendingWriteCount.dropWhile { it != 0 }.first()
-        close()
     }
 
     private fun writeAtOffset(
@@ -306,30 +278,6 @@ internal class SafeBoxBlobStore private constructor(
         }
     }
 
-    /**
-     * Wraps the given [action] with a mutex lock and emits corresponding state transitions.
-     * This allows external listeners to track internal state changes.
-     */
-    private suspend inline fun <T> Mutex.withLockAndStateUpdates(
-        initialState: SafeBoxState = WRITING,
-        crossinline action: () -> T,
-    ): T {
-        pendingWriteCount.update { it + 1 }
-        return withLock {
-            if (getCurrentState(getFileName()) != initialState) {
-                stateListener?.onStateChanged(initialState)
-                SafeBoxGlobalStateObserver.updateState(getFileName(), initialState)
-            }
-            val result = action()
-            pendingWriteCount.update { it - 1 }
-            if (pendingWriteCount.value == 0) {
-                stateListener?.onStateChanged(IDLE)
-                SafeBoxGlobalStateObserver.updateState(getFileName(), IDLE)
-            }
-            result
-        }
-    }
-
     @VisibleForTesting
     internal data class EntryMeta(val offset: Int, val size: Int)
 
@@ -340,14 +288,13 @@ internal class SafeBoxBlobStore private constructor(
         internal fun create(
             context: Context,
             fileName: String,
-            ioDispatcher: CoroutineDispatcher,
-            stateListener: SafeBoxStateListener?,
+            stateManager: SafeBoxStateManager,
         ): SafeBoxBlobStore {
             val file = File(context.noBackupFilesDir, "$fileName.bin")
             if (!file.exists()) {
                 file.createNewFile()
             }
-            return SafeBoxBlobStore(ioDispatcher, file, stateListener)
+            return SafeBoxBlobStore(stateManager, file)
         }
     }
 }
