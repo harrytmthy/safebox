@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -58,6 +59,8 @@ internal class SafeBoxStateManager(
 
     private val writeCompleted = AtomicReference<CompletableDeferred<Unit>>()
 
+    private val closed = AtomicBoolean(false)
+
     inline fun launchWithStartingState(crossinline block: suspend () -> Unit) {
         updateState(STARTING)
         safeBoxScope.launch(ioDispatcher) {
@@ -72,6 +75,9 @@ internal class SafeBoxStateManager(
     }
 
     inline fun launchCommitWithWritingState(crossinline block: suspend () -> Boolean): Boolean {
+        if (closed.get()) {
+            return false
+        }
         if (concurrentWriteCount.incrementAndGet() == 1) {
             writeCompleted.set(CompletableDeferred())
             if (initialReadCompleted.isCompleted) {
@@ -90,6 +96,9 @@ internal class SafeBoxStateManager(
         exceptionHandler: CoroutineExceptionHandler,
         crossinline block: suspend () -> Unit,
     ) {
+        if (closed.get()) {
+            return
+        }
         if (concurrentWriteCount.incrementAndGet() == 1) {
             writeCompleted.set(CompletableDeferred())
             if (initialReadCompleted.isCompleted) {
@@ -106,6 +115,7 @@ internal class SafeBoxStateManager(
 
     inline fun closeWhenIdle(crossinline block: () -> Unit) {
         if (concurrentWriteCount.get() == 0 && initialReadCompleted.isCompleted) {
+            closed.set(true)
             block()
             updateState(CLOSED)
             return
@@ -113,6 +123,7 @@ internal class SafeBoxStateManager(
         safeBoxScope.launch(ioDispatcher) {
             initialReadCompleted.await()
             writeCompleted.get()?.await()
+            closed.set(true)
             block()
             updateState(CLOSED)
         }
