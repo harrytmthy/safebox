@@ -33,8 +33,8 @@ import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.extensions.toEncodedByteArray
 import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
 import com.harrytmthy.safebox.registry.SafeBoxBlobFileRegistry
-import com.harrytmthy.safebox.state.SafeBoxState
 import com.harrytmthy.safebox.state.SafeBoxStateListener
+import com.harrytmthy.safebox.state.SafeBoxStateManager
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.storage.SafeBoxBlobStore
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
@@ -43,8 +43,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.CopyOnWriteArrayList
@@ -70,13 +68,13 @@ import java.util.concurrent.atomic.AtomicReference
  * @param blobStore Internal storage engine managing encrypted key-value pairs.
  * @param keyCipherProvider Cipher used for encrypting and decrypting keys (deterministic).
  * @param valueCipherProvider Cipher used for encrypting and decrypting values (randomized).
- * @param ioDispatcher Coroutine dispatcher for IO operations.
+ * @param stateManager Responsible for managing SafeBox lifecycle states and its concurrency.
  */
 public class SafeBox private constructor(
     private val blobStore: SafeBoxBlobStore,
     private val keyCipherProvider: CipherProvider,
     private val valueCipherProvider: CipherProvider,
-    private val ioDispatcher: CoroutineDispatcher,
+    private val stateManager: SafeBoxStateManager,
 ) : SharedPreferences {
 
     private val castFailureStrategy = AtomicReference<ValueFallbackStrategy>(WARN)
@@ -100,7 +98,7 @@ public class SafeBox private constructor(
         }
 
         override fun commit(entries: LinkedHashMap<String, Action>, cleared: Boolean): Boolean =
-            runBlocking {
+            stateManager.launchCommitWithWritingState {
                 try {
                     applyCompleted.await()
                     commitMutex.withLock {
@@ -114,7 +112,7 @@ public class SafeBox private constructor(
             }
 
         override fun apply(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
-            safeBoxScope.launch(ioDispatcher + exceptionHandler) {
+            stateManager.launchApplyWithWritingState(exceptionHandler) {
                 applyCompleted = CompletableDeferred()
                 applyMutex.withLock {
                     applyChanges(entries, cleared)
@@ -181,9 +179,7 @@ public class SafeBox private constructor(
      * becomes idle before releasing resources.
      */
     public fun closeWhenIdle() {
-        safeBoxScope.launch(ioDispatcher) {
-            blobStore.closeWhenIdle()
-        }
+        stateManager.closeWhenIdle(::close)
     }
 
     override fun getAll(): Map<String, Any?> {
@@ -372,7 +368,6 @@ public class SafeBox private constructor(
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
             SafeBoxBlobFileRegistry.register(fileName)
-            stateListener?.onStateChanged(SafeBoxState.IDLE)
             val aesGcmCipherProvider = AesGcmCipherProvider.create(
                 alias = valueKeyStoreAlias,
                 aad = additionalAuthenticatedData,
@@ -386,8 +381,9 @@ public class SafeBox private constructor(
             )
             val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
             val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
-            val blobStore = SafeBoxBlobStore.create(context, fileName, ioDispatcher, stateListener)
-            return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, ioDispatcher)
+            val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
+            val blobStore = SafeBoxBlobStore.create(context, fileName, stateManager)
+            return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
         }
 
         /**
@@ -422,8 +418,9 @@ public class SafeBox private constructor(
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
             SafeBoxBlobFileRegistry.register(fileName)
-            val blobStore = SafeBoxBlobStore.create(context, fileName, ioDispatcher, stateListener)
-            return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, ioDispatcher)
+            val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
+            val blobStore = SafeBoxBlobStore.create(context, fileName, stateManager)
+            return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
         }
     }
 }

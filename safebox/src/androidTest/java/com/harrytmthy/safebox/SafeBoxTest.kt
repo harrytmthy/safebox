@@ -22,12 +22,16 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_KEY_ALIAS
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
+import com.harrytmthy.safebox.state.SafeBoxState
+import com.harrytmthy.safebox.state.SafeBoxStateListener
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.After
 import org.junit.runner.RunWith
 import java.io.File
 import java.security.KeyStore
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -157,5 +161,41 @@ class SafeBoxTest {
         )
         assertContentEquals(expectedKeyChanges, changedKeys)
         assertContentEquals(expectedValueChanges, changedValues)
+    }
+
+    @Test
+    fun closeWhenIdle_shouldWaitUntilWritesAreDoneBeforeClosing() {
+        val observedStates = CopyOnWriteArrayList<SafeBoxState>()
+        var shouldLoop = true
+        val safeBox = SafeBox.create(
+            context = context,
+            fileName = "${fileName}2",
+            ioDispatcher = Dispatchers.IO,
+            stateListener = SafeBoxStateListener {
+                observedStates.add(it)
+                shouldLoop = it != SafeBoxState.CLOSED
+            },
+        )
+        repeat(5) {
+            safeBox.edit()
+                .putString("key", "value")
+                .apply()
+        }
+        safeBox.closeWhenIdle()
+        repeat(5) {
+            safeBox.edit()
+                .putString("key", "value")
+                .apply()
+        }
+        while (shouldLoop) {
+            Thread.sleep(3)
+        }
+        val expected = listOf(
+            SafeBoxState.STARTING,
+            SafeBoxState.WRITING,
+            SafeBoxState.IDLE,
+            SafeBoxState.CLOSED,
+        )
+        assertEquals(expected, observedStates)
     }
 }
