@@ -34,4 +34,10 @@ internal interface KeyProvider {
      * @return A non-null [SecretKey] instance.
      */
     fun getOrCreateKey(): SecretKey
+
+    /**
+     * Destroys any in-memory key material held by the implementation.
+     * This is typically used during shutdown to ensure sensitive key data is wiped from memory.
+     */
+    fun destroyKey() = Unit
 }

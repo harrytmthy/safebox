@@ -164,6 +164,8 @@ public class SafeBox private constructor(
     public fun close() {
         SafeBoxBlobFileRegistry.unregister(blobStore.getFileName())
         blobStore.close()
+        keyCipherProvider.destroyKey()
+        valueCipherProvider.destroyKey()
     }
 
     /**

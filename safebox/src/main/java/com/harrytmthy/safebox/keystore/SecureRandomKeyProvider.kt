@@ -17,11 +17,13 @@
 package com.harrytmthy.safebox.keystore
 
 import android.content.Context
+import android.security.keystore.KeyProperties.DIGEST_SHA256
 import android.util.Log
 import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.cryptography.SecureRandomProvider
 import java.io.File
 import java.security.GeneralSecurityException
+import java.security.MessageDigest
 import javax.crypto.SecretKey
 
 /**
@@ -36,30 +38,27 @@ import javax.crypto.SecretKey
  * secure persistence must be handled outside AndroidKeyStore.
  */
 internal class SecureRandomKeyProvider private constructor(
-    private val keyFile: File,
+    private val encryptedKeyFile: File,
     private val keySize: Int,
     private val algorithm: String,
     private val cipherProvider: CipherProvider,
 ) : KeyProvider {
 
-    private var keyBytes: ByteArray? = try {
-        keyFile.readBytes().takeIf { it.isNotEmpty() }
-    } catch (e: Exception) {
-        Log.e("SafeBox", "SecureRandomKeyProvider failed to read bytes.", e)
-        null
-    }
+    private var encryptedKeyBytes: ByteArray = encryptedKeyFile.readBytes()
 
     private var decryptedKey: SecretKey? = null
+
+    private val lock = Any()
 
     /**
      * Retrieves or generates the symmetric key, decrypting from disk if necessary.
      * The key is cached in memory for a short period before being cleared.
      */
     override fun getOrCreateKey(): SecretKey =
-        synchronized(LOCK) {
+        synchronized(lock) {
             decryptedKey?.let { return it }
             val key = try {
-                keyBytes?.takeIf { it.isNotEmpty() }
+                encryptedKeyBytes.takeIf { it.isNotEmpty() }
                     ?.let(cipherProvider::decrypt)
             } catch (e: GeneralSecurityException) {
                 Log.e("SafeBox", e.message, e)
@@ -70,20 +69,25 @@ internal class SecureRandomKeyProvider private constructor(
             return secretKey
         }
 
+    override fun destroyKey() {
+        decryptedKey?.destroy()
+        decryptedKey = null
+    }
+
     private fun createNewKey(): ByteArray {
         val generatedKey = SecureRandomProvider.generate(keySize)
         val encryptedKey = cipherProvider.encrypt(generatedKey)
-        keyBytes = encryptedKey
-        keyFile.writeBytes(encryptedKey)
+        encryptedKeyBytes = encryptedKey
+        encryptedKeyFile.writeBytes(encryptedKey)
         return generatedKey
     }
 
-    private fun ByteArray.toSecretKey(): SecretKey =
-        SafeSecretKey(this, algorithm)
+    private fun ByteArray.toSecretKey(): SecretKey {
+        val mask = MessageDigest.getInstance(DIGEST_SHA256).digest(encryptedKeyBytes)
+        return SafeSecretKey(this, mask, algorithm)
+    }
 
     internal companion object {
-
-        private val LOCK = Any()
 
         internal fun create(
             context: Context,
