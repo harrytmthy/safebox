@@ -18,30 +18,47 @@ package com.harrytmthy.safebox.keystore
 
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.SecretKey
 
 /**
- * A memory-safe and destroyable SecretKey implementation.
+ * A memory-safe and destroyable [SecretKey] implementation with in-memory masking.
  *
- * Unlike Java's SecretKeySpec, this does not expose the internal key to GC indefinitely
- * and allows for secure erasure via [destroy].
+ * Unlike Java's SecretKeySpec, this class stores the key material in a masked form inside a
+ * [ByteBuffer] allocated off-heap.
+ *
+ * The provided [mask] is used to XOR the key before storage and to reconstruct it on demand.
+ * This adds a layer of obfuscation in memory, making it significantly harder for attackers
+ * to retrieve the original key through memory inspection.
+ *
+ * The unmasked key is only briefly reconstructed when [getEncoded] is called and should be
+ * securely wiped using [releaseHeapCopy] immediately after use (e.g. after `cipher.doFinal()`).
+ *
+ * Call [destroy] to securely zero out both masked key and mask from memory when no longer needed.
  */
 internal class SafeSecretKey(
     key: ByteArray,
+    mask: ByteArray,
     private val algorithm: String,
 ) : SecretKey {
 
-    private val buffer: ByteBuffer = ByteBuffer.allocateDirect(key.size).apply {
-        put(key)
+    private val keyBuffer: ByteBuffer = ByteBuffer.allocateDirect(key.size).apply {
+        put(key.xorInPlace(mask))
+        flip()
+    }
+
+    private val maskBuffer: ByteBuffer = ByteBuffer.allocateDirect(mask.size).apply {
+        put(mask)
         flip()
     }
 
     private var lastCopy: ByteArray? = null
 
-    private var destroyed = false
+    private val destroyed = AtomicBoolean(false)
 
     init {
         require(key.isNotEmpty()) { "Key must not be empty" }
+        require(mask.isNotEmpty()) { "Mask must not be empty" }
     }
 
     /**
@@ -54,34 +71,63 @@ internal class SafeSecretKey(
     }
 
     /**
-     * Returns a clone of the key material stored in direct memory.
-     * The returned byte array is cached in [lastCopy] to prevent redundant cloning.
+     * Returns the original key material by unmasking the value stored in direct memory.
      *
-     * Must call [releaseHeapCopy] after using this method to zero the returned key material.
-     * This prevents lingering sensitive data in heap.
+     * Internally, the masked key is stored in [keyBuffer] (masked with [maskBuffer]).
+     * This method reconstructs the original key using XOR, then caches it in [lastCopy]
+     * to avoid redundant unmasking on repeated calls.
+     *
+     * ⚠️ Must call [releaseHeapCopy] after using the returned key. This securely zeroes out
+     * the temporary key material in heap, preventing it from lingering in memory.
      */
     override fun getEncoded(): ByteArray? =
-        synchronized(buffer) {
-            lastCopy?.let { return it }
-            val copy = ByteArray(buffer.remaining())
-            buffer.mark()
-            buffer.get(copy)
-            buffer.reset()
+        synchronized(keyBuffer) {
+            lastCopy?.let { return it.xor(maskBuffer.toByteArray()) }
+            val copy = keyBuffer.toByteArray()
             lastCopy = copy
-            return copy
+            return copy.xor(maskBuffer.toByteArray())
         }
 
-    override fun isDestroyed(): Boolean = destroyed
+    override fun isDestroyed(): Boolean = destroyed.get()
 
     override fun destroy() {
-        synchronized(buffer) {
+        synchronized(keyBuffer) {
             releaseHeapCopy()
-            for (i in 0 until buffer.capacity()) {
-                buffer.put(i, 0.toByte())
+            for (i in 0 until keyBuffer.capacity()) {
+                maskBuffer.put(i, 0.toByte())
+                keyBuffer.put(i, 0.toByte())
             }
-            destroyed = true
+            destroyed.set(true)
         }
     }
+
+    /**
+     * A ByteArray XOR operation, truncating to the smaller size.
+     */
+    private fun ByteArray.xor(value: ByteArray): ByteArray {
+        val size = this.size.coerceAtMost(value.size)
+        return ByteArray(size) { index ->
+            (this[index].toInt() xor value[index].toInt()).toByte()
+        }
+    }
+
+    /**
+     * A ByteArray in-place XOR operation for efficiency, truncating to the smaller size.
+     */
+    private fun ByteArray.xorInPlace(value: ByteArray): ByteArray {
+        val size = this.size.coerceAtMost(value.size)
+        for (index in 0 until size) {
+            this[index] = (this[index].toInt() xor value[index].toInt()).toByte()
+        }
+        return this
+    }
+
+    private fun ByteBuffer.toByteArray(): ByteArray =
+        ByteArray(this.remaining()).apply {
+            mark()
+            get(this)
+            reset()
+        }
 
     override fun getAlgorithm(): String = algorithm
 

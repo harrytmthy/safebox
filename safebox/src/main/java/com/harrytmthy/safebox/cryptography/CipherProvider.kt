@@ -37,4 +37,12 @@ public interface CipherProvider {
      * Decrypts the given [ciphertext] using the provided secret key.
      */
     fun decrypt(ciphertext: ByteArray): ByteArray
+
+    /**
+     * Destroys any associated cryptographic key material. This method is called when SafeBox
+     * is permanently closed to prevent key leakage from memory.
+     *
+     * Default implementation is a no-op.
+     */
+    fun destroyKey() = Unit
 }
