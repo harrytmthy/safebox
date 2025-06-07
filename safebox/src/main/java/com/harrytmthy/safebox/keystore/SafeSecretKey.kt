@@ -19,6 +19,7 @@ package com.harrytmthy.safebox.keystore
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.SecretKey
 
 /**
@@ -38,7 +39,7 @@ import javax.crypto.SecretKey
  */
 internal class SafeSecretKey(
     key: ByteArray,
-    mask: ByteArray,
+    private val mask: ByteArray,
     private val algorithm: String,
 ) : SecretKey {
 
@@ -47,12 +48,7 @@ internal class SafeSecretKey(
         flip()
     }
 
-    private val maskBuffer: ByteBuffer = ByteBuffer.allocateDirect(mask.size).apply {
-        put(mask)
-        flip()
-    }
-
-    private var lastCopy: ByteArray? = null
+    private val lastCopy = AtomicReference<ByteArray>()
 
     private val destroyed = AtomicBoolean(false)
 
@@ -66,27 +62,29 @@ internal class SafeSecretKey(
      * Call this immediately after using the encoded key (e.g. after `cipher.doFinal()`).
      */
     fun releaseHeapCopy() {
-        lastCopy?.fill(0)
-        lastCopy = null
+        lastCopy.get()?.fill(0)
+        lastCopy.set(null)
     }
 
     /**
      * Returns the original key material by unmasking the value stored in direct memory.
      *
-     * Internally, the masked key is stored in [keyBuffer] (masked with [maskBuffer]).
-     * This method reconstructs the original key using XOR, then caches it in [lastCopy]
-     * to avoid redundant unmasking on repeated calls.
+     * Internally, the key is stored in masked form inside [keyBuffer], using XOR with [mask].
+     * This method reconstructs the original key and caches it in [lastCopy] to avoid redundant
+     * unmasking on repeated calls.
      *
      * ⚠️ Must call [releaseHeapCopy] after using the returned key. This securely zeroes out
      * the temporary key material in heap, preventing it from lingering in memory.
      */
-    override fun getEncoded(): ByteArray? =
-        synchronized(keyBuffer) {
-            lastCopy?.let { return it.xor(maskBuffer.toByteArray()) }
-            val copy = keyBuffer.toByteArray()
-            lastCopy = copy
-            return copy.xor(maskBuffer.toByteArray())
+    override fun getEncoded(): ByteArray? {
+        lastCopy.get()?.let { return it }
+        return synchronized(keyBuffer) {
+            lastCopy.get()?.let { return it } // fast path after lock acquisition
+            val copy = keyBuffer.toByteArray().xorInPlace(mask)
+            lastCopy.set(copy)
+            return copy
         }
+    }
 
     override fun isDestroyed(): Boolean = destroyed.get()
 
@@ -94,20 +92,12 @@ internal class SafeSecretKey(
         synchronized(keyBuffer) {
             releaseHeapCopy()
             for (i in 0 until keyBuffer.capacity()) {
-                maskBuffer.put(i, 0.toByte())
+                if (i < mask.size) {
+                    mask[i] = 0.toByte()
+                }
                 keyBuffer.put(i, 0.toByte())
             }
             destroyed.set(true)
-        }
-    }
-
-    /**
-     * A ByteArray XOR operation, truncating to the smaller size.
-     */
-    private fun ByteArray.xor(value: ByteArray): ByteArray {
-        val size = this.size.coerceAtMost(value.size)
-        return ByteArray(size) { index ->
-            (this[index].toInt() xor value[index].toInt()).toByte()
         }
     }
 
