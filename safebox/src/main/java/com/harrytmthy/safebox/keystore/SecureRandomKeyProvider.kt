@@ -24,6 +24,7 @@ import com.harrytmthy.safebox.cryptography.SecureRandomProvider
 import java.io.File
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.SecretKey
 
 /**
@@ -46,7 +47,7 @@ internal class SecureRandomKeyProvider private constructor(
 
     private var encryptedKeyBytes: ByteArray = encryptedKeyFile.readBytes()
 
-    private var decryptedKey: SecretKey? = null
+    private val decryptedKey = AtomicReference<SecretKey>()
 
     private val lock = Any()
 
@@ -54,9 +55,10 @@ internal class SecureRandomKeyProvider private constructor(
      * Retrieves or generates the symmetric key, decrypting from disk if necessary.
      * The key is cached in memory for a short period before being cleared.
      */
-    override fun getOrCreateKey(): SecretKey =
-        synchronized(lock) {
-            decryptedKey?.let { return it }
+    override fun getOrCreateKey(): SecretKey {
+        decryptedKey.get()?.let { return it }
+        return synchronized(lock) {
+            decryptedKey.get()?.let { return it } // fast path after lock acquisition
             val key = try {
                 encryptedKeyBytes.takeIf { it.isNotEmpty() }
                     ?.let(cipherProvider::decrypt)
@@ -65,13 +67,14 @@ internal class SecureRandomKeyProvider private constructor(
                 null
             } ?: createNewKey()
             val secretKey = key.toSecretKey()
-            decryptedKey = secretKey
+            decryptedKey.set(secretKey)
             return secretKey
         }
+    }
 
     override fun destroyKey() {
-        decryptedKey?.destroy()
-        decryptedKey = null
+        decryptedKey.get()?.destroy()
+        decryptedKey.set(null)
     }
 
     private fun createNewKey(): ByteArray {
