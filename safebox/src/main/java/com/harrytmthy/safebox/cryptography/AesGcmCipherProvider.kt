@@ -42,11 +42,10 @@ internal class AesGcmCipherProvider private constructor(
     private val aad: ByteArray?,
 ) : CipherProvider {
 
-    private val cipher = Cipher.getInstance(TRANSFORMATION)
-
     override fun encrypt(plaintext: ByteArray): ByteArray {
         val key = keyProvider.getOrCreateKey()
         requireAes(key)
+        val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)
         aad?.let(cipher::updateAAD)
         val iv = cipher.iv
@@ -60,6 +59,7 @@ internal class AesGcmCipherProvider private constructor(
         val iv = ciphertext.copyOfRange(0, IV_SIZE)
         val actualData = ciphertext.copyOfRange(IV_SIZE, ciphertext.size)
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
+        val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, key, spec)
         aad?.let(cipher::updateAAD)
         return cipher.doFinal(actualData)
