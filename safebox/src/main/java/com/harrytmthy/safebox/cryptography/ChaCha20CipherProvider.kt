@@ -21,9 +21,7 @@ import android.security.keystore.KeyProperties.DIGEST_SHA256
 import com.harrytmthy.safebox.keystore.KeyProvider
 import com.harrytmthy.safebox.keystore.SafeSecretKey
 import org.bouncycastle.jcajce.spec.AEADParameterSpec
-import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.security.MessageDigest
-import java.security.Security
 import javax.crypto.Cipher
 
 /**
@@ -81,10 +79,5 @@ internal class ChaCha20CipherProvider(
         internal const val TRANSFORMATION = "ChaCha20-Poly1305"
         private const val IV_SIZE = 12
         private const val MAC_SIZE_BITS = 128
-
-        init {
-            Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
-            Security.addProvider(BouncyCastleProvider())
-        }
     }
 }

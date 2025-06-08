@@ -53,21 +53,12 @@ import javax.crypto.Cipher
  *     cipher.doFinal(...)
  * }
  * ```
- *
- * @param initialSize Initial pool size (default: 8).
- * @param maxSize Maximum pool size (default: 64).
- * @param loadFactor Determines when to refill the pool (default: 0.75).
- * @param transformation Cipher transformation string (e.g. "AES/GCM/NoPadding").
- * @param provider Cipher provider name (e.g. "AndroidOpenSSL").
- *
- * @throws TimeoutException if no Cipher becomes available after max retries.
  */
 public class CipherPool @JvmOverloads constructor(
     initialSize: Int = DEFAULT_INITIAL_SIZE,
     maxSize: Int = DEFAULT_MAX_SIZE,
     loadFactor: Float = DEFAULT_LOAD_FACTOR,
-    private val transformation: String,
-    private val provider: String,
+    private val getCipherInstance: () -> Cipher,
 ) {
 
     private val currentSize = AtomicInteger(initialSize.coerceAtMost(DEFAULT_MAX_SIZE))
@@ -80,9 +71,23 @@ public class CipherPool @JvmOverloads constructor(
 
     private val loadingMore = AtomicBoolean(false)
 
+    @JvmOverloads
+    constructor(
+        initialSize: Int = DEFAULT_INITIAL_SIZE,
+        maxSize: Int = DEFAULT_MAX_SIZE,
+        loadFactor: Float = DEFAULT_LOAD_FACTOR,
+        transformation: String,
+        provider: String,
+    ) : this(
+        initialSize = initialSize,
+        maxSize = maxSize,
+        loadFactor = loadFactor,
+        getCipherInstance = { Cipher.getInstance(transformation, provider) },
+    )
+
     init {
         repeat(currentSize.get()) {
-            pool.offer(Cipher.getInstance(transformation, provider))
+            pool.offer(getCipherInstance())
         }
     }
 
@@ -113,7 +118,7 @@ public class CipherPool @JvmOverloads constructor(
                     if (currentSize + count >= maxSize) {
                         break
                     }
-                    pool.offer(Cipher.getInstance(transformation, provider))
+                    pool.offer(getCipherInstance())
                     this.currentSize.incrementAndGet()
                 }
                 loadingMore.set(false)

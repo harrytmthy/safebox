@@ -17,6 +17,9 @@
 package com.harrytmthy.safebox.cryptography
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import java.security.GeneralSecurityException
+import java.security.Security
+import javax.crypto.Cipher
 
 /**
  * Provides singleton-managed [CipherPool] instances for SafeBox cryptographic providers.
@@ -28,8 +31,21 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 internal object SingletonCipherPoolProvider {
 
     private val chaCha20CipherPool = CipherPool(
-        transformation = ChaCha20CipherProvider.TRANSFORMATION,
-        provider = BouncyCastleProvider.PROVIDER_NAME,
+        getCipherInstance = {
+            try {
+                Cipher.getInstance(
+                    ChaCha20CipherProvider.TRANSFORMATION,
+                    BouncyCastleProvider.PROVIDER_NAME,
+                )
+            } catch (_: GeneralSecurityException) {
+                Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
+                Security.addProvider(BouncyCastleProvider())
+                Cipher.getInstance(
+                    ChaCha20CipherProvider.TRANSFORMATION,
+                    BouncyCastleProvider.PROVIDER_NAME,
+                )
+            }
+        },
     )
 
     /**
