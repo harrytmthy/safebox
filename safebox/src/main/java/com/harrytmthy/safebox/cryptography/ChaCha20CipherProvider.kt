@@ -40,7 +40,7 @@ internal class ChaCha20CipherProvider(
     private val deterministic: Boolean,
 ) : CipherProvider {
 
-    private val cipher = Cipher.getInstance(TRANSFORMATION, BouncyCastleProvider.PROVIDER_NAME)
+    private val cipherPool = SingletonCipherPoolProvider.getChaCha20CipherPool()
 
     override fun encrypt(plaintext: ByteArray): ByteArray {
         val iv = if (deterministic) {
@@ -50,8 +50,10 @@ internal class ChaCha20CipherProvider(
         }
         val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
         val key = keyProvider.getOrCreateKey()
-        cipher.init(Cipher.ENCRYPT_MODE, key, paramSpec)
-        val encrypted = cipher.doFinal(plaintext)
+        val encrypted = cipherPool.withCipher { cipher ->
+            cipher.init(Cipher.ENCRYPT_MODE, key, paramSpec)
+            cipher.doFinal(plaintext)
+        }
         (key as? SafeSecretKey)?.releaseHeapCopy()
         return iv + encrypted
     }
@@ -61,8 +63,10 @@ internal class ChaCha20CipherProvider(
         val actual = ciphertext.copyOfRange(IV_SIZE, ciphertext.size)
         val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
         val key = keyProvider.getOrCreateKey()
-        cipher.init(Cipher.DECRYPT_MODE, key, paramSpec)
-        val plaintext = cipher.doFinal(actual)
+        val plaintext = cipherPool.withCipher { cipher ->
+            cipher.init(Cipher.DECRYPT_MODE, key, paramSpec)
+            cipher.doFinal(actual)
+        }
         (key as? SafeSecretKey)?.releaseHeapCopy()
         return plaintext
     }
@@ -74,7 +78,7 @@ internal class ChaCha20CipherProvider(
     internal companion object {
         internal const val ALGORITHM = "ChaCha20"
         internal const val KEY_SIZE = 32
-        private const val TRANSFORMATION = "ChaCha20-Poly1305"
+        internal const val TRANSFORMATION = "ChaCha20-Poly1305"
         private const val IV_SIZE = 12
         private const val MAC_SIZE_BITS = 128
 
