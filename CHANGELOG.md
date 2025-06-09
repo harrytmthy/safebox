@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0-rc01] - 2025-06-09
+
+### Added
+- **CipherPool**: A coroutine-friendly, thread-safe pool for reusing `Cipher` instances across threads, backed by a load-factor-based expansion strategy. Prevents cryptographic race conditions in read-heavy workloads. ([#25](https://github.com/harrytmthy-dev/safebox/issues/25))
+- **SafeBoxExecutor**: Internal singleton executor to support background concurrency operations like CipherPool scaling. Publicly reusable for custom extensions. ([#30](https://github.com/harrytmthy-dev/safebox/pull/30))
+
+### Changed
+- **ChaCha20CipherProvider** now uses `CipherPool` for safe concurrent encryption/decryption. ([#25](https://github.com/harrytmthy-dev/safebox/issues/25))
+- **SafeSecretKey**: Now supports concurrent access by reducing synchronized scope, caching the unmasked key in a short-lived atomic heap reference. ([#26](https://github.com/harrytmthy-dev/safebox/issues/26))
+- **SecureRandomKeyProvider**: Key caching and unmasking now support concurrent access patterns without blocking parallel threads. ([#26](https://github.com/harrytmthy-dev/safebox/issues/26))
+- **BouncyCastle provider initialization** is now safer and more flexible: `CipherPool` lazily injects the provider only when ChaCha20 is not available, reducing the risk of overwriting external configurations. ([#1](https://github.com/harrytmthy-dev/safebox/issues/1))
+- **compileSdk bumped to 36**: Ensure SafeBox stays forward-compatible with the latest Android APIs. ([#2](https://github.com/harrytmthy-dev/safebox/issues/2))
+
+### Security
+- **XOR-based in-memory masking** added to `SafeSecretKey`, preventing runtime memory inspection of the raw DEK. The key is stored in masked form using a SHA-256 hash of the encrypted DEK as its mask. ([#23](https://github.com/harrytmthy-dev/safebox/issues/23))
+- **On-demand Cipher creation** for `AesGcmCipherProvider`, eliminating long-lived `Cipher` references that may retain sensitive key material. ([#28](https://github.com/harrytmthy-dev/safebox/issues/28))
+
 ## [1.1.0-beta01] - 2025-06-04
 
 ### Added
