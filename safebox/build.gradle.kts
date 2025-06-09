@@ -27,7 +27,7 @@ version = "1.1.0-beta01"
 
 android {
     namespace = "com.harrytmthy.safebox"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 23
