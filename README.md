@@ -9,17 +9,19 @@ SafeBox can help you [migrate](docs/MIGRATION.md) easily using the same `SharedP
 
 ## Why SafeBox?
 
-| Feature             | SafeBox                           | EncryptedSharedPreferences                |
+| Feature             | SafeBox v1.1.0                    | EncryptedSharedPreferences                |
 |---------------------|-----------------------------------|-------------------------------------------|
-| Initialization Time | **0.35ms** (*110x faster*)        | 38.7ms                                    |
+| Initialization Time | **0.38ms** (*100x faster*)        | 38.7ms                                    |
 | Storage Format      | Memory-mapped binary file         | XML-based per-entry                       |
 | Encryption Method   | ChaCha20-Poly1305 (keys & values) | AES-SIV for keys, AES-GCM for values      |
 | Key Security        | Android Keystore-backed AES-GCM   | Android Keystore MasterKey (*deprecated*) |
-| Customization       | Pluggable cipher/key providers    | Tightly coupled                           |
+| Customization       | Pluggable cipher providers        | Tightly coupled                           |
 
 SafeBox uses **deterministic encryption** for reference keys (for fast lookup) and **non-deterministic encryption** for values (for strong security). Both powered by a single ChaCha20 key protected via AES-GCM and stored securely.
 
-### SafeBox Key Derivation & Encryption Flow
+<details>
+
+<summary>🔑 SafeBox Key Derivation & Encryption Flow</summary>
 
 ```
  [Android Keystore-backed AES-GCM Key]
@@ -40,40 +42,6 @@ Compared to EncryptedSharedPreferences:
    Reference Keys     Entry Values
 
 ```
-
-## Performance Benchmarks
-
-Average times measured over **100 samples** on an emulator:
-
-![Read Performance](docs/charts/read_performance_chart.png)
-
-![Write Performance](docs/charts/write_performance_chart.png)
-
-![Write then Commit Performance](docs/charts/write_commit_performance_chart.png)
-
-<details>
-
-<summary>📊 Comparison Tables</summary>
-
-| Operation                    | SafeBox    | EncryptedSharedPreferences |
-|------------------------------|------------|----------------------------|
-| Write 1 entry then commit    | **0.55ms** | 1.31ms (*138% slower*)     |
-| Read 1 entry                 | **0.39ms** | 0.50ms (*28% slower*)      |
-| Write 3 entries then commit  | **1.25ms** | 2.16ms (*73% slower*)      |
-| Read 3 entries               | **0.94ms** | 1.27ms (*35% slower*)      |
-| Write 5 entries then commit  | **2.33ms** | 3.32ms (*42% slower*)      |
-| Read 5 entries               | **1.37ms** | 2.25ms (*64% slower*)      |
-| Write 10 entries then commit | **4.73ms** | 6.28ms (*33% slower*)      |
-| Read 10 entries              | **3.29ms** | 4.07ms (*24% slower*)      |
-
-Even on **multiple single commits**, SafeBox remains faster:
-
-| Operation                    | SafeBox     | EncryptedSharedPreferences |
-|------------------------------|-------------|----------------------------|
-| Write and commit 3 entries   | **1.94ms**  | 4.9ms (*152% slower*)      |
-| Write and commit 5 entries   | **2.84ms**  | 6.91ms (*143% slower*)     |
-| Write and commit 10 entries  | **5.47ms**  | 11.27ms (*106% slower*)    |
-| Write and commit 100 entries | **33.19ms** | 71.34ms (*115% slower*)    |
 
 </details>
 
@@ -175,10 +143,10 @@ Manually add listeners by file name:
 ```kotlin
 val listener = SafeBoxStateListener { state ->
     when (state) {
-        STARTING -> trackStart()    // Loading data into memory
-        IDLE     -> trackIdle()     // No active operations
-        WRITING  -> trackWrite()    // Writing to disk
-        CLOSED   -> trackClose()    // Instance is no longer usable
+        STARTING -> doSomething()   // Loading data into memory
+        IDLE     -> doSomething()   // No active operations
+        WRITING  -> doSomething()   // Writing to disk
+        CLOSED   -> doSomething()   // Instance is no longer usable
     }
 }
 SafeBoxGlobalStateObserver.addListener(PREF_FILE_NAME, listener)
@@ -201,6 +169,75 @@ val state = SafeBoxGlobalStateObserver.getCurrentState(PREF_FILE_NAME)
 SafeBox is a drop-in replacement for `EncryptedSharedPreferences`.
 
 ➡️ [Read the Migration Guide](docs/MIGRATION.md)
+
+## Performance Benchmarks
+
+Average times measured over **100 samples** on an emulator:
+
+<details open>
+
+<summary>📊 v1.1.0 Benchmark</summary>
+
+![Get Performance](docs/charts/v1_1_get_performance_chart.png)
+
+![Put Performance](docs/charts/v1_1_put_performance_chart.png)
+
+![Put then Commit Performance](docs/charts/v1_1_put_and_commit_performance_chart.png)
+
+| Operation                   | SafeBox v1.1.0 | EncryptedSharedPreferences |
+|-----------------------------|----------------|----------------------------|
+| Initialization              | **0.38ms**     | 38.7ms (*10,079% slower*)  |
+| Get 1 entry                 | **0.33ms**     | 0.50ms (*52% slower*)      |
+| Get 3 entries               | **0.94ms**     | 1.27ms (*35% slower*)      |
+| Get 5 entries               | **1.56ms**     | 2.25ms (*44% slower*)      |
+| Get 10 entries              | **3.06ms**     | 4.07ms (*33% slower*)      |
+| Put 1 entry, then commit    | **0.49ms**     | 1.31ms (*167% slower*)     |
+| Put 3 entries, then commit  | **1.34ms**     | 2.16ms (*61% slower*)      |
+| Put 5 entries, then commit  | **2.36ms**     | 3.32ms (*41% slower*)      |
+| Put 10 entries, then commit | **4.20ms**     | 6.28ms (*50% slower*)      |
+
+Even on **multiple single commits**, SafeBox remains faster:
+
+| Operation                    | SafeBox v1.1.0 | EncryptedSharedPreferences |
+|------------------------------|----------------|----------------------------|
+| Commit 3 single entries      | **1.50ms**     | 4.90ms (*227% slower*)     |
+| Commit 5 single entries      | **2.39ms**     | 6.91ms (*189% slower*)     |
+| Commit 10 single entries     | **5.07ms**     | 11.27ms (*122% slower*)    |
+| Commit 100 single entries    | **38.12ms**    | 71.34ms (*87% slower*)     |
+
+</details>
+
+<details>
+
+<summary>📊 v1.0.0 Benchmark</summary>
+
+![Get Performance](docs/charts/read_performance_chart.png)
+
+![Put Performance](docs/charts/write_performance_chart.png)
+
+![Put then Commit Performance](docs/charts/write_commit_performance_chart.png)
+
+| Operation                   | SafeBox v1.0.0 | EncryptedSharedPreferences |
+|-----------------------------|----------------|----------------------------|
+| Get 1 entry                 | **0.39ms**     | 0.50ms (*28% slower*)      |
+| Get 3 entries               | **0.94ms**     | 1.27ms (*35% slower*)      |
+| Get 5 entries               | **1.37ms**     | 2.25ms (*64% slower*)      |
+| Get 10 entries              | **3.29ms**     | 4.07ms (*24% slower*)      |
+| Put 1 entry, then commit    | **0.55ms**     | 1.31ms (*138% slower*)     |
+| Put 3 entries, then commit  | **1.25ms**     | 2.16ms (*73% slower*)      |
+| Put 5 entries, then commit  | **2.33ms**     | 3.32ms (*42% slower*)      |
+| Put 10 entries, then commit | **4.73ms**     | 6.28ms (*33% slower*)      |
+
+Even on **multiple single commits**, SafeBox remains faster:
+
+| Operation                    | SafeBox v1.0.0 | EncryptedSharedPreferences |
+|------------------------------|----------------|----------------------------|
+| Commit 3 single entries      | **1.94ms**     | 4.90ms (*152% slower*)     |
+| Commit 5 single entries      | **2.84ms**     | 6.91ms (*143% slower*)     |
+| Commit 10 single entries     | **5.47ms**     | 11.27ms (*106% slower*)    |
+| Commit 100 single entries    | **33.19ms**    | 71.34ms (*115% slower*)    |
+
+</details>
 
 ## Contributing
 
