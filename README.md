@@ -1,5 +1,9 @@
 # SafeBox
 
+[![Build](https://img.shields.io/github/actions/workflow/status/harrytmthy-dev/safebox/ci.yml?branch=main&label=build&logo=githubactions&logoColor=white&style=flat-square)](https://github.com/harrytmthy-dev/safebox/actions)
+[![License](https://img.shields.io/github/license/harrytmthy-dev/safebox?label=license&color=blue&style=flat-square)](https://github.com/harrytmthy-dev/safebox/blob/main/LICENSE)
+[![Release](https://img.shields.io/github/v/release/harrytmthy-dev/safebox?include_prereleases&label=release&color=orange&style=flat-square)](https://github.com/harrytmthy-dev/safebox/releases)
+
 A secure, blazing-fast alternative to `EncryptedSharedPreferences`, designed for Android projects which demand both **speed** and **security**.
 
 ## 🚨 EncryptedSharedPreferences is Deprecated
