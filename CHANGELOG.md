@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2025-06-11
+
+### Added
+- **SafeBoxStateManager**: A centralized lifecycle controller that manages `STARTING`, `WRITING`, `IDLE`, and `CLOSED` states per SafeBox instance. It tracks concurrent edits and ensures deterministic closure via `closeWhenIdle()`. ([#17](https://github.com/harrytmthy-dev/safebox/issues/17))
+- **SafeBoxGlobalStateObserver**: Observes SafeBox state transitions globally by file name. Useful for debugging or monitoring multiple files. ([#12](https://github.com/harrytmthy-dev/safebox/issues/12))
+- **SafeBoxStateListener**: Per-instance listener for tracking lifecycle changes.
+- **SafeBoxBlobFileRegistry**: Prevents multiple SafeBox instances from accessing the same file simultaneously, resolving potential file channel conflicts. ([#10](https://github.com/harrytmthy-dev/safebox/issues/10))
+- **SafeBoxExecutor**: Internal single-thread executor that supports background crypto operations and is publicly reusable for extensions. ([#30](https://github.com/harrytmthy-dev/safebox/pull/30))
+- **CipherPool**: A coroutine-friendly pool for reusing `Cipher` instances across threads. Helps prevent race conditions and improves crypto throughput. ([#25](https://github.com/harrytmthy-dev/safebox/issues/25))
+- **SafeBoxMigrationHelper**: Migrate from `EncryptedSharedPreferences` using standard `SharedPreferences` API. ([#13](https://github.com/harrytmthy-dev/safebox/pull/13))
+
+### Changed
+- **ChaCha20CipherProvider**: Now backed by `CipherPool` for thread-safe encryption and decryption. ([#25](https://github.com/harrytmthy-dev/safebox/issues/25))
+- **SafeSecretKey**: Rewritten for concurrency using short-lived heap caches and reduced synchronized scope. ([#26](https://github.com/harrytmthy-dev/safebox/issues/26))
+- **SecureRandomKeyProvider**: Improved concurrency behavior when retrieving or decrypting keys. ([#26](https://github.com/harrytmthy-dev/safebox/issues/26))
+- **BouncyCastleProvider**: Lazy-injected only when ChaCha20 isn't available, preserving host app provider configs. ([#1](https://github.com/harrytmthy-dev/safebox/issues/1))
+- **compileSdkVersion** bumped to `36`. ([#2](https://github.com/harrytmthy-dev/safebox/issues/2))
+
+### Security
+- **XOR-based key masking**: `SafeSecretKey` is now masked in memory using a SHA-256-derived mask. Prevents native memory inspection of raw DEK. ([#23](https://github.com/harrytmthy-dev/safebox/issues/23))
+- **On-demand cipher creation**: `AesGcmCipherProvider` no longer holds long-lived `Cipher` instances. ([#28](https://github.com/harrytmthy-dev/safebox/issues/28))
+
+### Docs
+- Added **v1.1.0 benchmark results** showing faster performance across `get()`, `put()`, and `commit()` operations. ([#35](https://github.com/harrytmthy-dev/safebox/issues/35))
+- Enabled [**GitHub Sponsors**](https://github.com/sponsors/harrytmthy-dev) with the new `Support SafeBox` section. ([#37](https://github.com/harrytmthy-dev/safebox/issues/37))
+- Added project metadata badges: Build, License, and Version. ([#39](https://github.com/harrytmthy-dev/safebox/issues/39))
+
 ## [1.1.0-rc01] - 2025-06-09
 
 ### Added
