@@ -243,6 +243,12 @@ Even on **multiple single commits**, SafeBox remains faster:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, formatting, testing, and PR guidelines.
 
+## 💖 Support SafeBox
+
+If SafeBox helped secure your app or saved your time, consider sponsoring to support future improvements and maintenance!
+
+[![Sponsor](https://img.shields.io/badge/sponsor-%F0%9F%92%96-blueviolet?style=flat-square)](https://github.com/sponsors/harrytmthy-dev)
+
 ## License
 
 ```
