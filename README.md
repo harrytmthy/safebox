@@ -53,7 +53,7 @@ Compared to EncryptedSharedPreferences:
 
 ```kotlin
 dependencies {
-    implementation("io.github.harrytmthy-dev:safebox:1.1.0-rc01")
+    implementation("io.github.harrytmthy-dev:safebox:1.1.0")
 }
 ```
 
