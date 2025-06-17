@@ -59,10 +59,55 @@ CI runs instrumented tests automatically on:
 
 ## Releasing (For Maintainers)
 
-Only maintainers can perform releases:
-- Tag with semantic versioning (`v1.1.0-alpha02`)
-- Update `CHANGELOG.md`
-- Run: `./gradlew publishToMavenCentral --no-configuration-cache`
+Only maintainers can perform releases.
+
+### 1. Create a release branch
+
+Create a branch from `main` using the following naming convention:
+
+```
+release/v1.2.0-alpha01
+```
+
+This branch will contain a single release commit.
+
+### 2. Prepare the release commit
+
+Update the following files in the same commit:
+
+- **`README.md`**  
+  Update the version in the `Installation` section:
+
+  ```kotlin
+  implementation("io.github.harrytmthy-dev:safebox:1.2.0-alpha01")
+  ```
+  
+- **`:safebox/build.gradle.kts`**
+  Set the new library version:
+
+    ```kotlin
+    version = "1.2.0-alpha01"
+    ```
+
+- **`CHANGELOG.md`**  
+  Add a new section at the top with changes included in this release.
+
+Commit message format:
+
+```
+release: v1.2.0-alpha01
+```
+
+### 3. Merge and tag
+- Open a Pull Request from `release/v1.2.0-alpha01` into main
+- Once approved and merged, create and push a Git tag:
+
+```bash
+git tag v1.2.0-alpha01
+git push origin v1.2.0-alpha01
+```
+
+This triggers the GitHub Action to publish the release to Maven Central.
 
 ---
 
