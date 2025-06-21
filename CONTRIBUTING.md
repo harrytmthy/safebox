@@ -5,7 +5,7 @@ Thank you for considering contributing! SafeBox welcomes improvements, bug fixes
 ## Local Setup
 
 ```bash
-git clone https://github.com/harrytmthy-dev/safebox.git
+git clone https://github.com/harrytmthy/safebox.git
 ```
 
 ### Update pre-hook path
@@ -53,7 +53,7 @@ CI runs instrumented tests automatically on:
 
 ## Contributor Etiquette
 
-- Discuss major changes or feature proposals first via [Issues](https://github.com/harrytmthy-dev/safebox/issues).
+- Discuss major changes or feature proposals first via [Issues](https://github.com/harrytmthy/safebox/issues).
 - Be respectful during reviews! We're building something safe and friendly.
 - If anything is unclear, don't hesitate to ask!
 
@@ -79,7 +79,7 @@ Update the following files in the same commit:
   Update the version in the `Installation` section:
 
   ```kotlin
-  implementation("io.github.harrytmthy-dev:safebox:1.2.0-alpha01")
+  implementation("io.github.harrytmthy:safebox:1.2.0-alpha01")
   ```
   
 - **`:safebox/build.gradle.kts`**

@@ -60,6 +60,6 @@ SafeBoxMigrationHelper.migrate(from = encryptedPrefs, to = safeBox)
 
 - SafeBox is open-source and MIT licensed
 - Fully tested, memory-safe, and designed for offline-first applications
-- Already published to [Maven Central](https://central.sonatype.com/artifact/io.github.harrytmthy-dev/safebox)
+- Already published to [Maven Central](https://central.sonatype.com/artifact/io.github.harrytmthy/safebox)
 
-Looking to contribute? Found an edge case? Let us know or [open an issue](https://github.com/harrytmthy-dev/safebox/issues).
+Looking to contribute? Found an edge case? Let us know or [open an issue](https://github.com/harrytmthy/safebox/issues).
