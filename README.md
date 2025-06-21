@@ -1,8 +1,8 @@
 # SafeBox
 
-[![Build](https://img.shields.io/github/actions/workflow/status/harrytmthy-dev/safebox/ci.yml?branch=main&label=build&logo=githubactions&logoColor=white&style=flat-square)](https://github.com/harrytmthy-dev/safebox/actions)
-[![License](https://img.shields.io/github/license/harrytmthy-dev/safebox?label=license&color=blue&style=flat-square)](https://github.com/harrytmthy-dev/safebox/blob/main/LICENSE)
-[![Release](https://img.shields.io/github/v/release/harrytmthy-dev/safebox?include_prereleases&label=release&color=orange&style=flat-square)](https://github.com/harrytmthy-dev/safebox/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/harrytmthy/safebox/ci.yml?branch=main&label=build&logo=githubactions&logoColor=white&style=flat-square)](https://github.com/harrytmthy/safebox/actions)
+[![License](https://img.shields.io/github/license/harrytmthy/safebox?label=license&color=blue&style=flat-square)](https://github.com/harrytmthy/safebox/blob/main/LICENSE)
+[![Release](https://img.shields.io/github/v/release/harrytmthy/safebox?include_prereleases&label=release&color=orange&style=flat-square)](https://github.com/harrytmthy/safebox/releases)
 
 A secure, blazing-fast alternative to `EncryptedSharedPreferences`, designed for Android projects which demand both **speed** and **security**.
 
@@ -53,9 +53,15 @@ Compared to EncryptedSharedPreferences:
 
 ```kotlin
 dependencies {
-    implementation("io.github.harrytmthy-dev:safebox:1.1.0")
+    implementation("io.github.harrytmthy:safebox:1.1.0")
 }
 ```
+
+### ⚠️ Heads up
+
+The `io.github.harrytmthy-dev` namespace is now **deprecated**. Starting from `v1.2.0-alpha01`, SafeBox will be published under the canonical Maven group `io.github.harrytmthy`.
+
+Please update your dependencies accordingly.
 
 ## Basic Usage
 
@@ -251,7 +257,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, formatting, testing, and PR gu
 
 If SafeBox helped secure your app or saved your time, consider sponsoring to support future improvements and maintenance!
 
-[![Sponsor](https://img.shields.io/badge/sponsor-%F0%9F%92%96-blueviolet?style=flat-square)](https://github.com/sponsors/harrytmthy-dev)
+[![Sponsor](https://img.shields.io/badge/sponsor-%F0%9F%92%96-blueviolet?style=flat-square)](https://github.com/sponsors/harrytmthy)
 
 ## License
 

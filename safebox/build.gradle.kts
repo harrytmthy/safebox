@@ -22,7 +22,7 @@ plugins {
     id("com.vanniktech.maven.publish")
 }
 
-group = "io.github.harrytmthy-dev"
+group = "io.github.harrytmthy"
 version = "1.1.0"
 
 android {
@@ -102,15 +102,15 @@ mavenPublishing {
 
         developers {
             developer {
-                id.set("harrytmthy-dev")
+                id.set("harrytmthy")
                 name.set("Harry Timothy Tumalewa")
                 email.set("harrytmthy@gmail.com")
             }
         }
 
         scm {
-            connection.set("scm:git:git://github.com/harrytmthy-dev/safebox.git")
-            developerConnection.set("scm:git:ssh://github.com:harrytmthy-dev/safebox.git")
+            connection.set("scm:git:git://github.com/harrytmthy/safebox.git")
+            developerConnection.set("scm:git:ssh://github.com:harrytmthy/safebox.git")
             url.set("https://github.com/harrytmthy/safebox")
         }
     }
