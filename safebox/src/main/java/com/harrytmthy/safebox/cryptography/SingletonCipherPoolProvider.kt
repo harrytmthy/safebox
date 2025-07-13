@@ -16,6 +16,7 @@
 
 package com.harrytmthy.safebox.cryptography
 
+import android.annotation.SuppressLint
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.security.GeneralSecurityException
 import java.security.Security
@@ -30,6 +31,7 @@ import javax.crypto.Cipher
  */
 internal object SingletonCipherPoolProvider {
 
+    @SuppressLint("DeprecatedProvider")
     private val chaCha20CipherPool = CipherPool(
         getCipherInstance = {
             try {

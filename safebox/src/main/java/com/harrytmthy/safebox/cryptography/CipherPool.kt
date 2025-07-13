@@ -16,8 +16,9 @@
 
 package com.harrytmthy.safebox.cryptography
 
-import com.harrytmthy.safebox.concurrent.SafeBoxExecutor
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -32,7 +33,7 @@ import javax.crypto.Cipher
  * #### Behavior:
  * - Initializes with [initialSize] Cipher instances, up to [maxSize].
  * - If available Cipher count drops below `currentSize * (1 - loadFactor)`,
- *   it triggers a background refill using [SafeBoxExecutor].
+ *   it triggers a background refill using [CipherPoolExecutor].
  * - If all instances are in use, [acquire] blocks with exponential backoff until one is available.
  *
  * #### Usage:
@@ -59,6 +60,7 @@ public class CipherPool @JvmOverloads constructor(
     maxSize: Int = DEFAULT_MAX_SIZE,
     loadFactor: Float = DEFAULT_LOAD_FACTOR,
     private val getCipherInstance: () -> Cipher,
+    private val executor: CipherPoolExecutor = DefaultCipherPoolExecutor,
 ) {
 
     private val currentSize = AtomicInteger(initialSize.coerceAtMost(DEFAULT_MAX_SIZE))
@@ -78,11 +80,13 @@ public class CipherPool @JvmOverloads constructor(
         loadFactor: Float = DEFAULT_LOAD_FACTOR,
         transformation: String,
         provider: String,
+        executor: CipherPoolExecutor = DefaultCipherPoolExecutor,
     ) : this(
         initialSize = initialSize,
         maxSize = maxSize,
         loadFactor = loadFactor,
         getCipherInstance = { Cipher.getInstance(transformation, provider) },
+        executor = executor,
     )
 
     init {
@@ -113,7 +117,7 @@ public class CipherPool @JvmOverloads constructor(
                 return cipher
             }
             loadingMore.set(true)
-            SafeBoxExecutor.executeSingleThread {
+            executor.executeLoadTask {
                 for (count in 0 until currentSize) {
                     if (currentSize + count >= maxSize) {
                         break
@@ -187,5 +191,53 @@ public class CipherPool @JvmOverloads constructor(
         public const val DEFAULT_MAX_SIZE = 64
         internal const val RETRY_MILLIS = 5L
         internal const val MAX_RETRY_MILLIS = 80L
+    }
+}
+
+public interface CipherPoolExecutor {
+    fun executeLoadTask(task: () -> Unit)
+    fun scheduleTrimmingTask(task: () -> Unit)
+}
+
+/**
+ * Internal executor dedicated to background tasks within [CipherPool], which isolates
+ * cryptographic and resource-sensitive operations from the main thread.
+ *
+ * Uses a single-threaded daemon executor to serialize refill and trimming operations
+ * safely across all CipherPool instances.
+ */
+internal object DefaultCipherPoolExecutor : CipherPoolExecutor {
+
+    private const val WORKER_THREAD = "SafeBox-CipherPool-Worker"
+
+    private const val SCHEDULER_THREAD = "SafeBox-CipherPool-Scheduler"
+
+    private const val SCHEDULER_DELAY_MILLIS = 600_000L
+
+    private val singleThreadWorker = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, WORKER_THREAD).apply {
+            isDaemon = true
+            priority = Thread.NORM_PRIORITY
+        }
+    }
+
+    private val singleThreadScheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, SCHEDULER_THREAD).apply {
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY
+        }
+    }
+
+    override fun executeLoadTask(task: () -> Unit) {
+        singleThreadWorker.execute(task)
+    }
+
+    override fun scheduleTrimmingTask(task: () -> Unit) {
+        singleThreadScheduler.scheduleWithFixedDelay(
+            { executeLoadTask(task) },
+            SCHEDULER_DELAY_MILLIS,
+            SCHEDULER_DELAY_MILLIS,
+            TimeUnit.MILLISECONDS,
+        )
     }
 }
