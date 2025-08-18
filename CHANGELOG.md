@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2025-08-16
+
+### Fixed
+- **ProGuard consumer rules missing**: SafeBox now ships with a default `proguard-consumer-rules.pro` to prevent crashes during R8 shrinking. This fix ensures SafeBox's BouncyCastle usage does not get stripped during release builds. ([#51](https://github.com/harrytmthy/safebox/issues/51))
+
 ## [1.1.0] - 2025-06-11
 
 ### Added
