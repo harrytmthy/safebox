@@ -80,6 +80,18 @@ class SafeBoxTest {
     }
 
     @Test
+    fun getString_withRealIoDispatcher_shouldReturnCorrectValue() {
+        safeBox = createSafeBox(ioDispatcher = Dispatchers.IO)
+        safeBox.edit()
+            .putString("SafeBox", "Secured")
+            .apply()
+
+        val value = safeBox.getString("SafeBox", null)
+
+        assertEquals("Secured", value)
+    }
+
+    @Test
     fun getString_afterRemove_shouldReturnDefaultValue() {
         safeBox = createSafeBox()
         safeBox.edit()
