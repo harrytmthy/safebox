@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2025-08-19
+
+### Fixed
+- **`apply()` now behaves like EncryptedSharedPreferences**: `getXxx()` calls will now return the expected values immediately after `.apply()` is invoked, even before disk writes complete. This resolves issues where values were missing if accessed right after applying edits. ([#54](https://github.com/harrytmthy/safebox/issues/54))
+
 ## [1.1.1] - 2025-08-16
 
 ### Fixed
