@@ -45,6 +45,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -77,7 +78,9 @@ public class SafeBox private constructor(
     private val stateManager: SafeBoxStateManager,
 ) : SharedPreferences {
 
-    private val castFailureStrategy = AtomicReference<ValueFallbackStrategy>(WARN)
+    private val entries: MutableMap<Bytes, ByteArray> = ConcurrentHashMap()
+
+    private val castFailureStrategy = AtomicReference(WARN)
 
     private val byteDecoder = ByteDecoder(castFailureStrategy::get)
 
@@ -92,17 +95,24 @@ public class SafeBox private constructor(
 
     private val delegate = object : Delegate {
 
+        private val updateLock = Any()
+
         private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
             Log.e("SafeBox", "Failed to apply changes.", throwable)
             applyCompleted.complete(Unit)
         }
 
-        override fun commit(entries: LinkedHashMap<String, Action>, cleared: Boolean): Boolean =
-            stateManager.launchCommitWithWritingState {
+        override fun commit(entries: LinkedHashMap<String, Action>, cleared: Boolean): Boolean {
+            val entriesToWrite = LinkedHashMap(entries)
+            synchronized(updateLock) {
+                entries.clear() // Prevents stale mutations on reused editor instance
+                updateEntries(entriesToWrite, cleared)
+            }
+            return stateManager.launchCommitWithWritingState {
                 try {
                     applyCompleted.await()
                     commitMutex.withLock {
-                        applyChanges(entries, cleared)
+                        applyChanges(entriesToWrite, cleared)
                     }
                     true
                 } catch (e: Exception) {
@@ -110,15 +120,53 @@ public class SafeBox private constructor(
                     false
                 }
             }
+        }
 
         override fun apply(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
+            val entriesToWrite = LinkedHashMap(entries)
+            synchronized(updateLock) {
+                entries.clear() // Prevents stale mutations on reused editor instance
+                updateEntries(entriesToWrite, cleared)
+            }
             stateManager.launchApplyWithWritingState(exceptionHandler) {
                 applyCompleted = CompletableDeferred()
                 applyMutex.withLock {
-                    applyChanges(entries, cleared)
+                    applyChanges(entriesToWrite, cleared)
                 }
                 applyCompleted.complete(Unit)
             }
+        }
+
+        private fun updateEntries(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
+            if (cleared) {
+                val keys = this@SafeBox.entries.keys.toHashSet()
+                this@SafeBox.entries.clear()
+                for (encryptedKey in keys) {
+                    val key = keyCipherProvider.decrypt(encryptedKey.value).toString(Charsets.UTF_8)
+                    listeners.forEach { it.onSharedPreferenceChanged(this@SafeBox, key) }
+                }
+            }
+            for ((key, action) in entries) {
+                when (action) {
+                    is Put -> {
+                        val encryptedKey = key.toEncryptedKey()
+                        val encryptedValue = action.encodedValue.value
+                            .let(valueCipherProvider::encrypt)
+                        this@SafeBox.entries[encryptedKey] = encryptedValue
+                    }
+                    is Remove -> {
+                        val encryptedKey = key.toEncryptedKey()
+                        this@SafeBox.entries.remove(encryptedKey)
+                    }
+                }
+                listeners.forEach { it.onSharedPreferenceChanged(this@SafeBox, key) }
+            }
+        }
+    }
+
+    init {
+        stateManager.launchWithStartingState {
+            entries += blobStore.loadPersistedEntries()
         }
     }
 
@@ -185,9 +233,8 @@ public class SafeBox private constructor(
     }
 
     override fun getAll(): Map<String, Any?> {
-        val encryptedEntries = blobStore.getAll()
-        val decryptedEntries = HashMap<String, Any?>(encryptedEntries.size, 1f)
-        for (entry in encryptedEntries) {
+        val decryptedEntries = HashMap<String, Any?>(entries.size, 1f)
+        for (entry in entries) {
             val key = keyCipherProvider.decrypt(entry.key.value).toString(Charsets.UTF_8)
             val value = valueCipherProvider.decrypt(entry.value)
             decryptedEntries[key] = byteDecoder.decodeAny(value)
@@ -226,7 +273,7 @@ public class SafeBox private constructor(
             ?: defValue
 
     override fun contains(key: String): Boolean =
-        blobStore.contains(key.toEncryptedKey())
+        entries.containsKey(key.toEncryptedKey())
 
     override fun edit(): SharedPreferences.Editor = Editor(delegate)
 
@@ -243,15 +290,12 @@ public class SafeBox private constructor(
     }
 
     private fun getDecryptedValue(key: String): ByteArray? =
-        blobStore.get(key.toEncryptedKey())
+        entries[key.toEncryptedKey()]
             ?.let(valueCipherProvider::decrypt)
 
     private suspend fun applyChanges(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
         if (cleared) {
-            blobStore.deleteAll().forEach { encryptedKey ->
-                val key = keyCipherProvider.decrypt(encryptedKey.value).toString(Charsets.UTF_8)
-                listeners.forEach { it.onSharedPreferenceChanged(this, key) }
-            }
+            blobStore.deleteAll()
         }
         for ((key, action) in entries) {
             when (action) {
@@ -267,9 +311,7 @@ public class SafeBox private constructor(
                     }
                 }
             }
-            listeners.forEach { it.onSharedPreferenceChanged(this, key) }
         }
-        entries.clear()
     }
 
     private fun String.toEncryptedKey(): Bytes =
@@ -384,7 +426,7 @@ public class SafeBox private constructor(
             val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
             val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
             val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
-            val blobStore = SafeBoxBlobStore.create(context, fileName, stateManager)
+            val blobStore = SafeBoxBlobStore.create(context, fileName)
             return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
         }
 
@@ -421,7 +463,7 @@ public class SafeBox private constructor(
         ): SafeBox {
             SafeBoxBlobFileRegistry.register(fileName)
             val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
-            val blobStore = SafeBoxBlobStore.create(context, fileName, stateManager)
+            val blobStore = SafeBoxBlobStore.create(context, fileName)
             return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
         }
     }

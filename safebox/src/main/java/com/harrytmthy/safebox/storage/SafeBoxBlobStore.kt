@@ -20,7 +20,6 @@ import android.content.Context
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import com.harrytmthy.safebox.extensions.toBytes
-import com.harrytmthy.safebox.state.SafeBoxStateManager
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.ERROR
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
@@ -41,65 +40,53 @@ import java.util.concurrent.atomic.AtomicReference
  * Keys and values are stored as length-prefixed byte sequences:
  * [keyLength:Short][valueLength:Int][keyBytes:ByteArray][valueBytes:ByteArray]
  */
-internal class SafeBoxBlobStore private constructor(
-    stateManager: SafeBoxStateManager,
-    private val file: File,
-) {
+internal class SafeBoxBlobStore private constructor(private val file: File) {
 
     private val channel = RandomAccessFile(file, "rw").channel
 
     private val buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, BUFFER_CAPACITY.toLong())
-
-    private val entries = HashMap<Bytes, ByteArray>()
 
     @VisibleForTesting
     internal val entryMetas = LinkedHashMap<Bytes, EntryMeta>()
 
     private val initialLoadCompleted = AtomicBoolean(false)
 
-    private val initialLoadStrategy = AtomicReference<ValueFallbackStrategy>(WARN)
+    private val initialLoadStrategy = AtomicReference(WARN)
 
     private val writeMutex = Mutex()
 
     private val nextWritePosition: Int
         get() = entryMetas.values.lastOrNull()?.run { offset + size } ?: 0
 
-    init {
-        stateManager.launchWithStartingState {
-            writeMutex.withLock {
-                var offset = 0
-                while (offset + HEADER_SIZE <= buffer.capacity()) {
-                    buffer.position(offset)
-                    val keyLength = buffer.short.toInt()
-                    val valueLength = buffer.int
-                    val entrySize = HEADER_SIZE + keyLength + valueLength
-                    if (keyLength == 0 || offset + entrySize > buffer.capacity()) {
-                        break
-                    }
-                    val encryptedKey = ByteArray(keyLength).also(buffer::get).toBytes()
-                    val encryptedValue = ByteArray(valueLength).also(buffer::get)
-                    entries[encryptedKey] = encryptedValue
-                    entryMetas[encryptedKey] = EntryMeta(offset, entrySize)
-                    offset += HEADER_SIZE + keyLength + valueLength
+    /**
+     * Reads all persisted key–value pairs from disk into memory.
+     * Must be called once during SafeBox's initialization to hydrate SafeBox with existing entries.
+     */
+    internal suspend fun loadPersistedEntries(): Map<Bytes, ByteArray> =
+        writeMutex.withLock {
+            val entries = HashMap<Bytes, ByteArray>()
+            var offset = 0
+            while (offset + HEADER_SIZE <= buffer.capacity()) {
+                buffer.position(offset)
+                val keyLength = buffer.short.toInt()
+                val valueLength = buffer.int
+                val entrySize = HEADER_SIZE + keyLength + valueLength
+                if (keyLength == 0 || offset + entrySize > buffer.capacity()) {
+                    break
                 }
-                initialLoadCompleted.set(true)
+                val encryptedKey = ByteArray(keyLength).also(buffer::get).toBytes()
+                val encryptedValue = ByteArray(valueLength).also(buffer::get)
+                entries[encryptedKey] = encryptedValue
+                entryMetas[encryptedKey] = EntryMeta(offset, entrySize)
+                offset += HEADER_SIZE + keyLength + valueLength
             }
+            initialLoadCompleted.set(true)
+            entries
         }
-    }
-
-    internal fun get(key: Bytes): ByteArray? {
-        checkInitialLoad()
-        return entries[key]
-    }
-
-    internal fun getAll(): Map<Bytes, ByteArray> {
-        checkInitialLoad()
-        return entries
-    }
 
     internal fun contains(encryptedKey: Bytes): Boolean {
         checkInitialLoad()
-        return entries.containsKey(encryptedKey)
+        return entryMetas.containsKey(encryptedKey)
     }
 
     internal fun setInitialLoadStrategy(fallbackStrategy: ValueFallbackStrategy) {
@@ -153,7 +140,6 @@ internal class SafeBoxBlobStore private constructor(
                 updateEntryMetaOffsets(currentIndex + 1, entry.offset, metas)
             }
             buffer.force()
-            entries -= encryptedKeys
             entryMetas -= encryptedKeys
         }
     }
@@ -164,19 +150,15 @@ internal class SafeBoxBlobStore private constructor(
      * Performs a complete logical wipe by zeroing-out all bytes up to the last written position,
      * ensuring previously stored data cannot be recovered. Also clears all in-memory metadata
      * to reset the store to its initial empty state.
-     *
-     * @return a set of [Bytes] keys that were removed, used for notifying listeners.
      */
-    internal suspend fun deleteAll(): Set<Bytes> =
+    internal suspend fun deleteAll() {
         writeMutex.withLock {
             buffer.position(0)
             buffer.put(ByteArray(nextWritePosition))
             buffer.force()
-            val keys = entries.keys.toSet()
-            entries.clear()
             entryMetas.clear()
-            keys
         }
+    }
 
     /**
      * Returns the name of the backing file, excluding its extension.
@@ -211,7 +193,6 @@ internal class SafeBoxBlobStore private constructor(
         buffer.put(encryptedKey.value)
         buffer.put(encryptedValue)
         buffer.force()
-        entries[encryptedKey] = encryptedValue
         entryMetas[encryptedKey] = EntryMeta(offset, entrySize)
     }
 
@@ -285,16 +266,12 @@ internal class SafeBoxBlobStore private constructor(
         const val BUFFER_CAPACITY = 1024 * 1024 // 1MB
         const val HEADER_SIZE = 6 // 2 bytes for key length, 4 bytes for value length
 
-        internal fun create(
-            context: Context,
-            fileName: String,
-            stateManager: SafeBoxStateManager,
-        ): SafeBoxBlobStore {
+        internal fun create(context: Context, fileName: String): SafeBoxBlobStore {
             val file = File(context.noBackupFilesDir, "$fileName.bin")
             if (!file.exists()) {
                 file.createNewFile()
             }
-            return SafeBoxBlobStore(stateManager, file)
+            return SafeBoxBlobStore(file)
         }
     }
 }

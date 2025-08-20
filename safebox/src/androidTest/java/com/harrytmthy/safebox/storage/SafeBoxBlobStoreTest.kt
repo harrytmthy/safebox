@@ -20,16 +20,11 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.harrytmthy.safebox.extensions.toBytes
-import com.harrytmthy.safebox.state.SafeBoxState
-import com.harrytmthy.safebox.state.SafeBoxStateListener
-import com.harrytmthy.safebox.state.SafeBoxStateManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.runner.RunWith
 import java.io.File
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -44,21 +39,12 @@ class SafeBoxBlobStoreTest {
 
     private val fileName: String = "safebox_blob_test"
 
-    private val observedStates = CopyOnWriteArrayList<SafeBoxState>()
-
-    private val stateListener = SafeBoxStateListener(observedStates::add)
-
-    private val blobStore = SafeBoxBlobStore.create(
-        context,
-        fileName,
-        SafeBoxStateManager(fileName, stateListener, UnconfinedTestDispatcher()),
-    )
+    private val blobStore = SafeBoxBlobStore.create(context, fileName)
 
     @After
     fun teardown() {
         blobStore.close()
         File(context.noBackupFilesDir, "$fileName.bin").delete()
-        observedStates.clear()
     }
 
     @Test
@@ -70,7 +56,7 @@ class SafeBoxBlobStoreTest {
         blobStore.write(firstKey, firstValue)
         blobStore.write(secondKey, secondValue)
 
-        val result = blobStore.getAll()
+        val result = blobStore.loadPersistedEntries()
 
         assertEquals(2, result.size)
         assertContentEquals(firstValue, result[firstKey])
@@ -91,7 +77,7 @@ class SafeBoxBlobStoreTest {
 
         blobStore.delete(firstKey)
 
-        val result = blobStore.getAll()
+        val result = blobStore.loadPersistedEntries()
         assertEquals(2, result.size)
         assertFalse(result.any { it == firstKey })
         assertContentEquals(secondValue, result[secondKey])
@@ -113,7 +99,7 @@ class SafeBoxBlobStoreTest {
 
         blobStore.delete(secondKey)
 
-        val result = blobStore.getAll()
+        val result = blobStore.loadPersistedEntries()
         assertEquals(2, result.size)
         assertFalse(result.any { it == secondKey })
         assertContentEquals(firstValue, result[firstKey])
@@ -135,7 +121,7 @@ class SafeBoxBlobStoreTest {
 
         blobStore.delete(thirdKey)
 
-        val result = blobStore.getAll()
+        val result = blobStore.loadPersistedEntries()
         assertEquals(2, result.size)
         assertFalse(result.any { it == thirdKey })
         assertContentEquals(firstValue, result[firstKey])
@@ -157,7 +143,7 @@ class SafeBoxBlobStoreTest {
         val thirdValue = "789".toByteArray()
         blobStore.write(thirdKey, thirdValue)
 
-        val result = blobStore.getAll()
+        val result = blobStore.loadPersistedEntries()
         assertEquals(2, result.size)
         assertFalse(result.any { it == firstKey })
         assertContentEquals(secondValue, result[secondKey])
@@ -176,7 +162,7 @@ class SafeBoxBlobStoreTest {
         blobStore.write(key, firstValue)
         blobStore.write(key, secondValue)
 
-        val result = blobStore.getAll()
+        val result = blobStore.loadPersistedEntries()
         assertEquals(1, result.size)
         assertContentEquals(secondValue, result[key])
         assertTrue(blobStore.entryMetas.containsKey(key))
@@ -191,7 +177,7 @@ class SafeBoxBlobStoreTest {
         blobStore.write(key, firstValue)
         blobStore.write(key, secondValue)
 
-        val result = blobStore.getAll()
+        val result = blobStore.loadPersistedEntries()
         assertEquals(1, result.size)
         assertContentEquals(secondValue, result[key])
         assertTrue(blobStore.entryMetas.containsKey(key))
@@ -206,7 +192,7 @@ class SafeBoxBlobStoreTest {
         blobStore.write(key, firstValue)
         blobStore.write(key, secondValue)
 
-        val result = blobStore.getAll()
+        val result = blobStore.loadPersistedEntries()
         assertEquals(1, result.size)
         assertContentEquals(secondValue, result[key])
         assertTrue(blobStore.entryMetas.containsKey(key))
@@ -215,14 +201,5 @@ class SafeBoxBlobStoreTest {
     @Test
     fun getFileName_shouldReturnFileName() {
         assertEquals(fileName, blobStore.getFileName())
-    }
-
-    @Test
-    fun init_shouldEmitStartingState() {
-        val expected = listOf(
-            SafeBoxState.STARTING,
-            SafeBoxState.IDLE,
-        )
-        assertEquals(expected, observedStates)
     }
 }
