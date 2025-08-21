@@ -64,7 +64,6 @@ class SafeBoxMigrationHelperTest {
         esp.edit()
             .clear()
             .commit()
-        safeBox.close()
         context.deleteSharedPreferences(fileEsp)
         context.deleteFile("$fileSafeBox.bin")
     }

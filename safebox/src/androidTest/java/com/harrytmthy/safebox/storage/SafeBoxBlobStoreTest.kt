@@ -43,7 +43,6 @@ class SafeBoxBlobStoreTest {
 
     @After
     fun teardown() {
-        blobStore.close()
         File(context.noBackupFilesDir, "$fileName.bin").delete()
     }
 

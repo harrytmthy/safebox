@@ -53,5 +53,6 @@ public enum class SafeBoxState {
      * Indicates that SafeBox has been closed and is no longer usable.
      * To access the same file again, a new SafeBox instance must be created.
      */
+    @Deprecated(message = "This state is never emitted, as SafeBox is always active and reusable.")
     CLOSED,
 }
