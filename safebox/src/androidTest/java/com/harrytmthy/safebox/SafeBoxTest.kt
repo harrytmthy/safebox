@@ -20,9 +20,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_KEY_ALIAS
-import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
-import com.harrytmthy.safebox.state.SafeBoxState
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -30,14 +27,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.After
 import org.junit.runner.RunWith
-import java.io.File
-import java.security.KeyStore
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -56,15 +48,6 @@ class SafeBoxTest {
         safeBox.edit()
             .clear()
             .commit()
-        safeBox.close()
-
-        KeyStore.getInstance("AndroidKeyStore").apply {
-            load(null)
-            deleteEntry(DEFAULT_VALUE_KEYSTORE_ALIAS)
-        }
-
-        File(context.noBackupFilesDir, "$fileName.bin").delete()
-        File(context.noBackupFilesDir, "$DEFAULT_KEY_ALIAS.bin").delete()
     }
 
     @Test
@@ -177,68 +160,6 @@ class SafeBoxTest {
         )
         assertContentEquals(expectedKeyChanges, changedKeys)
         assertContentEquals(expectedValueChanges, changedValues)
-    }
-
-    @Test
-    fun closeWhenIdle_shouldWaitUntilWritesAreDoneBeforeClosing() {
-        val observedStates = CopyOnWriteArrayList<SafeBoxState>()
-        val closed = AtomicBoolean(false)
-        safeBox = createSafeBox(
-            ioDispatcher = Dispatchers.IO,
-            stateListener = SafeBoxStateListener { state ->
-                observedStates.add(state)
-                closed.set(state == SafeBoxState.CLOSED)
-            },
-        )
-        repeat(5) {
-            safeBox.edit()
-                .putString("key", "value")
-                .apply()
-        }
-        safeBox.closeWhenIdle()
-        repeat(5) {
-            safeBox.edit()
-                .putString("key", "value")
-                .apply()
-        }
-        while (!closed.get()) {
-            Thread.sleep(3)
-        }
-        val expectedOnSlowInit = listOf(
-            SafeBoxState.STARTING,
-            SafeBoxState.WRITING,
-            SafeBoxState.IDLE,
-            SafeBoxState.CLOSED,
-        )
-        val expectedOnFastInit = listOf(
-            SafeBoxState.STARTING,
-            SafeBoxState.IDLE, // finished STARTING before launching any write operation
-            SafeBoxState.WRITING,
-            SafeBoxState.IDLE,
-            SafeBoxState.CLOSED,
-        )
-        assertTrue(observedStates == expectedOnSlowInit || observedStates == expectedOnFastInit)
-    }
-
-    @Test
-    fun putString_shouldDoNothingAfterClosing() {
-        val hasEmissionAfterClose = AtomicBoolean(false)
-        val closed = AtomicBoolean(false)
-        safeBox = createSafeBox(
-            stateListener = SafeBoxStateListener { state ->
-                if (closed.get()) {
-                    hasEmissionAfterClose.set(true)
-                }
-                closed.set(state == SafeBoxState.CLOSED)
-            },
-        )
-
-        safeBox.closeWhenIdle()
-        safeBox.edit()
-            .putString("key", "value")
-            .commit()
-
-        assertFalse(hasEmissionAfterClose.get())
     }
 
     private fun createSafeBox(

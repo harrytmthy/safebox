@@ -170,14 +170,6 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
      */
     internal fun getFileName(): String = file.nameWithoutExtension
 
-    /**
-     * Closes the underlying file channel and releases associated resources.
-     * Must be called when SafeBoxBlobStore is no longer in use to prevent memory leaks.
-     */
-    internal fun close() {
-        channel.close()
-    }
-
     private fun writeAtOffset(
         encryptedKey: Bytes,
         encryptedValue: ByteArray,

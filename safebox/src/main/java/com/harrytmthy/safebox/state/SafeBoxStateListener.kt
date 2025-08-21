@@ -20,7 +20,7 @@ package com.harrytmthy.safebox.state
  * A listener interface for observing [SafeBoxState] changes tied to a specific SafeBox file.
  *
  * This is typically used in non-singleton SafeBox use cases (e.g. ViewModel-scoped),
- * where consumers need to track if the instance is writing, idle, or closed.
+ * where consumers need to track if the instance is starting, writing, or idle.
  *
  * @see SafeBoxState
  */

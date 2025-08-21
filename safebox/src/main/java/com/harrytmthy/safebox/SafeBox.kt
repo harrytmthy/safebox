@@ -32,7 +32,6 @@ import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.extensions.toEncodedByteArray
 import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
-import com.harrytmthy.safebox.registry.SafeBoxBlobFileRegistry
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.state.SafeBoxStateManager
 import com.harrytmthy.safebox.storage.Bytes
@@ -199,9 +198,9 @@ public class SafeBox private constructor(
     }
 
     /**
+     * **Deprecated:** SafeBox no longer supports instance closing.
+     *
      * Immediately closes the underlying file channel and releases resources.
-     * Also unregisters the file from [SafeBoxBlobFileRegistry], allowing a new SafeBox
-     * instance to be created with the same filename.
      *
      * ⚠️ Once closed, this instance becomes *permanently unusable*. Any further access will fail.
      *
@@ -209,17 +208,15 @@ public class SafeBox private constructor(
      *
      * Closing during an active write can result in data corruption or incomplete persistence.
      */
+    @Deprecated(message = "This method is now a no-op, as SafeBox is always active and reusable.")
     public fun close() {
-        SafeBoxBlobFileRegistry.unregister(blobStore.getFileName())
-        blobStore.close()
-        keyCipherProvider.destroyKey()
-        valueCipherProvider.destroyKey()
+        // no-op
     }
 
     /**
+     * **Deprecated:** SafeBox no longer supports instance closing.
+     *
      * Closes the underlying file channel only after all pending writes have completed.
-     * Also unregisters the file from [SafeBoxBlobFileRegistry], allowing a new SafeBox
-     * instance to be created with the same filename.
      *
      * ⚠️ Once closed, this instance becomes *permanently unusable*. Any further access will fail.
      *
@@ -228,8 +225,9 @@ public class SafeBox private constructor(
      * Internally, this launches a coroutine on [safeBoxScope] to wait until the SafeBox
      * becomes idle before releasing resources.
      */
+    @Deprecated(message = "This method is now a no-op, as SafeBox is always active and reusable.")
     public fun closeWhenIdle() {
-        stateManager.closeWhenIdle(::close)
+        // no-op
     }
 
     override fun getAll(): Map<String, Any?> {
@@ -376,6 +374,9 @@ public class SafeBox private constructor(
         @VisibleForTesting
         internal const val DEFAULT_VALUE_KEYSTORE_ALIAS = "SafeBoxValue"
 
+        @VisibleForTesting
+        internal val instances = ConcurrentHashMap<String, SafeBox>()
+
         /**
          * Creates a [SafeBox] instance with secure defaults:
          * - Keys are deterministically encrypted using [ChaCha20CipherProvider].
@@ -411,7 +412,10 @@ public class SafeBox private constructor(
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
-            SafeBoxBlobFileRegistry.register(fileName)
+            instances[fileName]?.let { safeBox ->
+                stateListener?.let(safeBox.stateManager::setStateListener)
+                return safeBox
+            }
             val aesGcmCipherProvider = AesGcmCipherProvider.create(
                 alias = valueKeyStoreAlias,
                 aad = additionalAuthenticatedData,
@@ -428,6 +432,7 @@ public class SafeBox private constructor(
             val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
             val blobStore = SafeBoxBlobStore.create(context, fileName)
             return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
+                .also { instances[fileName] = it }
         }
 
         /**
@@ -461,10 +466,14 @@ public class SafeBox private constructor(
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
-            SafeBoxBlobFileRegistry.register(fileName)
+            instances[fileName]?.let { safeBox ->
+                stateListener?.let(safeBox.stateManager::setStateListener)
+                return safeBox
+            }
             val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
             val blobStore = SafeBoxBlobStore.create(context, fileName)
             return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
+                .also { instances[fileName] = it }
         }
     }
 }
