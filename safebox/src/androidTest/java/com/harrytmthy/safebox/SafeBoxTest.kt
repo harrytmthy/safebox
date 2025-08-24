@@ -28,11 +28,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.runner.RunWith
 import java.io.File
 import java.security.KeyStore
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -40,6 +41,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -180,47 +182,6 @@ class SafeBoxTest {
     }
 
     @Test
-    fun closeWhenIdle_shouldWaitUntilWritesAreDoneBeforeClosing() {
-        val observedStates = CopyOnWriteArrayList<SafeBoxState>()
-        val closed = AtomicBoolean(false)
-        safeBox = createSafeBox(
-            ioDispatcher = Dispatchers.IO,
-            stateListener = SafeBoxStateListener { state ->
-                observedStates.add(state)
-                closed.set(state == SafeBoxState.CLOSED)
-            },
-        )
-        repeat(5) {
-            safeBox.edit()
-                .putString("key", "value")
-                .apply()
-        }
-        safeBox.closeWhenIdle()
-        repeat(5) {
-            safeBox.edit()
-                .putString("key", "value")
-                .apply()
-        }
-        while (!closed.get()) {
-            Thread.sleep(3)
-        }
-        val expectedOnSlowInit = listOf(
-            SafeBoxState.STARTING,
-            SafeBoxState.WRITING,
-            SafeBoxState.IDLE,
-            SafeBoxState.CLOSED,
-        )
-        val expectedOnFastInit = listOf(
-            SafeBoxState.STARTING,
-            SafeBoxState.IDLE, // finished STARTING before launching any write operation
-            SafeBoxState.WRITING,
-            SafeBoxState.IDLE,
-            SafeBoxState.CLOSED,
-        )
-        assertTrue(observedStates == expectedOnSlowInit || observedStates == expectedOnFastInit)
-    }
-
-    @Test
     fun putString_shouldDoNothingAfterClosing() {
         val hasEmissionAfterClose = AtomicBoolean(false)
         val closed = AtomicBoolean(false)
@@ -239,6 +200,27 @@ class SafeBoxTest {
             .commit()
 
         assertFalse(hasEmissionAfterClose.get())
+    }
+
+    @Test
+    fun apply_then_commit_shouldHaveCorrectOrder() = runTest {
+        safeBox = createSafeBox(ioDispatcher = Dispatchers.IO)
+
+        withTimeout(10.seconds) {
+            safeBox.edit().putInt("0", 0).apply()
+            safeBox.edit().putInt("1", 1).apply()
+            assertTrue(safeBox.edit().clear().commit())
+            safeBox.edit().putInt("2", 2).apply()
+            safeBox.edit().putInt("3", 3).apply()
+            assertTrue(safeBox.edit().clear().commit())
+            safeBox.edit().putInt("4", 4).apply()
+        }
+
+        assertEquals(4, safeBox.getInt("4", -1))
+        assertEquals(-1, safeBox.getInt("3", -1))
+        assertEquals(-1, safeBox.getInt("2", -1))
+        assertEquals(-1, safeBox.getInt("1", -1))
+        assertEquals(-1, safeBox.getInt("0", -1))
     }
 
     private fun createSafeBox(

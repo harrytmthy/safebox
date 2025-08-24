@@ -24,7 +24,6 @@ import com.harrytmthy.safebox.state.SafeBoxState.STARTING
 import com.harrytmthy.safebox.state.SafeBoxState.WRITING
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.atomic.AtomicBoolean
@@ -64,13 +63,14 @@ internal class SafeBoxStateManager(
     inline fun launchWithStartingState(crossinline block: suspend () -> Unit) {
         updateState(STARTING)
         safeBoxScope.launch(ioDispatcher) {
-            block()
-            if (concurrentWriteCount.get() == 0) {
-                updateState(IDLE)
-            } else {
-                updateState(WRITING)
+            try {
+                block()
+            } finally {
+                initialReadCompleted.complete(Unit)
+                if (concurrentWriteCount.get() == 0) {
+                    updateState(IDLE)
+                }
             }
-            initialReadCompleted.complete(Unit)
         }
     }
 
@@ -78,38 +78,31 @@ internal class SafeBoxStateManager(
         if (closed.get()) {
             return false
         }
-        if (concurrentWriteCount.incrementAndGet() == 1) {
-            writeCompleted.set(CompletableDeferred())
-            if (initialReadCompleted.isCompleted) {
-                updateState(WRITING)
-            }
-        }
         return runBlocking {
-            initialReadCompleted.await()
-            val result = block()
-            finalizeWriting()
-            result
+            withStateTransition(block)
         }
     }
 
-    inline fun launchApplyWithWritingState(
-        exceptionHandler: CoroutineExceptionHandler,
-        crossinline block: suspend () -> Unit,
-    ) {
+    inline fun launchApplyWithWritingState(crossinline block: suspend () -> Unit) {
         if (closed.get()) {
             return
         }
-        if (concurrentWriteCount.incrementAndGet() == 1) {
-            writeCompleted.set(CompletableDeferred())
-            if (initialReadCompleted.isCompleted) {
-                updateState(WRITING)
-            }
+        safeBoxScope.launch(ioDispatcher) {
+            withStateTransition(block)
         }
-        safeBoxScope.launch(ioDispatcher + exceptionHandler) {
-            initialReadCompleted.await()
+    }
+
+    private suspend inline fun <T> withStateTransition(crossinline block: suspend () -> T): T {
+        initialReadCompleted.await()
+        if (concurrentWriteCount.incrementAndGet() == 1) {
+            updateState(WRITING)
+        }
+        return try {
             block()
-        }.invokeOnCompletion {
-            finalizeWriting()
+        } finally {
+            if (concurrentWriteCount.decrementAndGet() == 0) {
+                updateState(IDLE)
+            }
         }
     }
 
@@ -132,12 +125,5 @@ internal class SafeBoxStateManager(
     private fun updateState(newState: SafeBoxState) {
         stateListener?.onStateChanged(newState)
         SafeBoxGlobalStateObserver.updateState(fileName, newState)
-    }
-
-    private fun finalizeWriting() {
-        if (concurrentWriteCount.decrementAndGet() == 0) {
-            updateState(IDLE)
-            writeCompleted.get()?.complete(Unit)
-        }
     }
 }
