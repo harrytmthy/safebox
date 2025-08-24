@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.3] - 2025-08-24
+
+### Fixed
+- **Serialized `.apply()` and `.commit()` writes**: Previously, rapid sequences of `.apply()` and `.commit()` could interleave and cause `AEADBadTagException` or a commit deadlock. SafeBox now enforces strict write sequencing, ensuring only one disk write is active at a time. ([#60](https://github.com/harrytmthy/safebox/issues/60))
+
 ## [1.1.2] - 2025-08-19
 
 ### Fixed

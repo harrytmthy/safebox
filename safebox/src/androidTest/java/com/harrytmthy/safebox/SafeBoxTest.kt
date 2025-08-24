@@ -25,6 +25,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.runner.RunWith
 import kotlin.test.Test
@@ -32,6 +34,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -160,6 +163,27 @@ class SafeBoxTest {
         )
         assertContentEquals(expectedKeyChanges, changedKeys)
         assertContentEquals(expectedValueChanges, changedValues)
+    }
+
+    @Test
+    fun apply_then_commit_shouldHaveCorrectOrder() = runTest {
+        safeBox = createSafeBox(ioDispatcher = Dispatchers.IO)
+
+        withTimeout(10.seconds) {
+            safeBox.edit().putInt("0", 0).apply()
+            safeBox.edit().putInt("1", 1).apply()
+            assertTrue(safeBox.edit().clear().commit())
+            safeBox.edit().putInt("2", 2).apply()
+            safeBox.edit().putInt("3", 3).apply()
+            assertTrue(safeBox.edit().clear().commit())
+            safeBox.edit().putInt("4", 4).apply()
+        }
+
+        assertEquals(4, safeBox.getInt("4", -1))
+        assertEquals(-1, safeBox.getInt("3", -1))
+        assertEquals(-1, safeBox.getInt("2", -1))
+        assertEquals(-1, safeBox.getInt("1", -1))
+        assertEquals(-1, safeBox.getInt("0", -1))
     }
 
     private fun createSafeBox(
