@@ -382,14 +382,12 @@ public class SafeBox private constructor(
         /**
          * Creates a [SafeBox] instance with secure defaults:
          * - Keys are deterministically encrypted using [ChaCha20CipherProvider].
-         * - Values are encrypted with the same ChaCha20 key, but with randomized IV per encryption.
-         * - The ChaCha20 secret is encrypted using AES-GCM via [SecureRandomKeyProvider].
+         * - Values are encrypted with the same ChaCha20 key, using a randomized IV per encryption.
+         * - The ChaCha20 secret is encrypted with AES-GCM via [SecureRandomKeyProvider].
          *
-         * This method handles secure initialization and is recommended for most use cases.
-         *
-         * **Common pitfalls:**
-         * - Do NOT create multiple SafeBox instances with the same file name.
-         * - Avoid scoping SafeBox to short-lived components (e.g. ViewModel).
+         * This method is idempotent per [fileName]. Repeated calls return the existing instance.
+         * If [stateListener] is non-null, it replaces the current listener. All other parameters
+         * are ignored when the instance already exists.
          *
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
@@ -400,7 +398,6 @@ public class SafeBox private constructor(
          * @param stateListener The listener to observe instance-bound state transitions
          *
          * @return A fully configured [SafeBox] instance
-         * @throws IllegalStateException if the file is already registered.
          */
         @JvmOverloads
         @JvmStatic
@@ -446,12 +443,12 @@ public class SafeBox private constructor(
         /**
          * Creates a [SafeBox] instance using a custom [CipherProvider] implementation.
          *
+         * This method is idempotent per [fileName]. Repeated calls return the existing instance.
+         * If [stateListener] is non-null, it replaces the current listener. All other parameters
+         * are ignored when the instance already exists.
+         *
          * This is useful for testing or advanced use cases where you want to control
          * the encryption mechanism directly.
-         *
-         * **Common pitfalls:**
-         * - Do NOT create multiple SafeBox instances with the same file name.
-         * - Avoid scoping SafeBox to short-lived components (e.g. ViewModel).
          *
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
@@ -461,7 +458,6 @@ public class SafeBox private constructor(
          * @param stateListener The listener to observe instance-bound state transitions
          *
          * @return A [SafeBox] instance with the provided [CipherProvider]
-         * @throws IllegalStateException if the file is already registered.
          */
         @JvmOverloads
         @JvmStatic

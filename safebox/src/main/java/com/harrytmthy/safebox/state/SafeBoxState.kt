@@ -19,39 +19,41 @@ package com.harrytmthy.safebox.state
 import com.harrytmthy.safebox.SafeBox
 
 /**
- * Represents the current lifecycle state of a [SafeBox] instance.
+ * Lifecycle state of a [SafeBox] instance.
  *
- * These states are exposed through [SafeBoxStateListener] and help consumers track
- * SafeBox activity, especially during asynchronous operations.
+ * Emitted to [SafeBoxStateListener] for visibility during async work.
  *
  * @see SafeBoxStateListener
  */
 public enum class SafeBoxState {
 
     /**
-     * Indicates that SafeBox has been successfully created and currently loading persisted data
-     * from disk into memory.
+     * Indicates SafeBox instance is created and is loading persisted entries from disk.
      *
-     * During this state, SafeBox is not yet ready to serve read or write operations.
-     * Any read/write call will be suspended until the state transitions to [IDLE].
+     * Reads return the default value until the initial load completes.
+     *
+     * Writes update the in-memory map immediately. Disk persistence follows the initial load.
      */
     STARTING,
 
     /**
-     * Indicates that SafeBox is ready and currently idle, with no active write operations.
-     * This is the default state after initialization completes and between writes.
+     * Ready and idle. No active persistence is running.
      */
     IDLE,
 
     /**
-     * Indicates that SafeBox is currently writing data to disk.
-     * Avoid closing or deleting the SafeBox during this time.
+     * One or more writes are being persisted to disk.
+     *
+     * Reads reflect the latest in-memory values.
+     *
+     * Writes update the in-memory map immediately. Disk persistence follows the current batch.
      */
     WRITING,
 
     /**
-     * Indicates that SafeBox has been closed and is no longer usable.
-     * To access the same file again, a new SafeBox instance must be created.
+     * **Deprecated:** This state is no longer emitted.
+     *
+     * SafeBox has been closed and is no longer usable.
      */
     @Deprecated(message = "This state is never emitted, as SafeBox is always active and reusable.")
     CLOSED,

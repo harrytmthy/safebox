@@ -65,13 +65,10 @@ Please update your dependencies accordingly.
 
 ## Basic Usage
 
-First, provide SafeBox as a singleton:
+Create the instance:
 
 ```kotlin
-@Singleton
-@Provides
-fun provideEncryptedSharedPreferences(@ApplicationContext context: Context): SharedPreferences =
-    SafeBox.create(context, PREF_FILE_NAME) // Ensuring single instance per file
+val prefs: SharedPreferences = SafeBox.create(context, PREF_FILE_NAME)
 ```
 
 Then use it like any `SharedPreferences`:
@@ -86,48 +83,38 @@ val userId = prefs.getInt("userId", -1)
 val email = prefs.getString("email", null)
 ```
 
-<details>
-
-<summary>⚠️ Anti-Patterns</summary>
-
-#### ❌ Do NOT create multiple SafeBox instances with the same file name before closing the previous one
+Once created, you can retrieve the same instance without a `Context`:
 
 ```kotlin
-fun saveUsername(value: String) {
-    SafeBox.create(context, PREF_FILE_NAME)
-        .edit { putString("username", value) } // ❌ New instance per function call
-}
+SafeBox.get(PREF_FILE_NAME) // or SafeBox.create(context, PREF_FILE_NAME)
+    .edit()
+    .clear()
+    .commit()
 ```
 
-This may cause FileChannel conflicts, memory leaks, or stale reads across instances.
+> Prefer `SafeBox.getOrNull(fileName)` if you need a safe retrieval without throwing.
 
----
+### Understanding SafeBox Behavior
 
-#### ⚠️ Avoid scoping SafeBox to short-lived components
+SafeBox returns the same instance per filename:
 
 ```kotlin
-@Module
-@InstallIn(ViewModelComponent::class) // ⚠️ New instance per ViewModel
-object SomeModule {
-    
-    @Provides
-    fun provideSafeBox(@ApplicationContext context: Context): SafeBox =
-        SafeBox.create(context, PREF_FILE_NAME)
-}
+val a1 = SafeBox.create(context, "fileA")
+val a2 = SafeBox.create(context, "fileA")
+val a3 = SafeBox.get("fileA")
 
-class HomeViewModel @Inject constructor(private val safeBox: SafeBox) : ViewModel() {
+assertTrue(a1 === a2)   // same reference
+assertTrue(a1 === a3)   // same reference
 
-    override fun onCleared() {
-        safeBox.closeWhenIdle() // Technically safe, but why re-create SafeBox for every ViewModel?
-    }
-}
+val b = SafeBox.create(context, "fileB")
+assertTrue(a1 !== b)    // different filenames = different instances
 ```
 
-</details>
+> Repeating `SafeBox.create(context, fileName)` returns the existing instance for that `fileName`. When an instance already exists, **all parameters are ignored** except a non-null `stateListener`, which replaces the current listener.
 
 ### Observing State Changes
 
-You can observe SafeBox lifecycle state transitions (`STARTING`, `WRITING`, `IDLE`, `CLOSED`) in two ways:
+You can observe SafeBox lifecycle state transitions (`STARTING`, `WRITING`, `IDLE`) in two ways.
 
 #### 1. Instance-bound listener
 
@@ -135,12 +122,11 @@ You can observe SafeBox lifecycle state transitions (`STARTING`, `WRITING`, `IDL
 val safeBox = SafeBox.create(
     context = context,
     fileName = PREF_FILE_NAME,
-    listener = SafeBoxStateListener { state ->
+    stateListener = SafeBoxStateListener { state ->
         when (state) {
-            STARTING -> trackStart()    // Loading data into memory
-            IDLE     -> trackIdle()     // No active operations
-            WRITING  -> trackWrite()    // Writing to disk
-            CLOSED   -> trackClose()    // Instance is no longer usable
+            SafeBoxState.STARTING -> trackStart()    // Loading from disk
+            SafeBoxState.IDLE     -> trackIdle()     // No active persistence
+            SafeBoxState.WRITING  -> trackWrite()    // Persisting to disk
         }
     }
 )
@@ -148,27 +134,21 @@ val safeBox = SafeBox.create(
 
 #### 2. Global observer
 
-Manually add listeners by file name:
-
 ```kotlin
 val listener = SafeBoxStateListener { state ->
     when (state) {
-        STARTING -> doSomething()   // Loading data into memory
-        IDLE     -> doSomething()   // No active operations
-        WRITING  -> doSomething()   // Writing to disk
-        CLOSED   -> doSomething()   // Instance is no longer usable
+        SafeBoxState.STARTING -> onStart()
+        SafeBoxState.IDLE     -> onIdle()
+        SafeBoxState.WRITING  -> onWrite()
     }
 }
 SafeBoxGlobalStateObserver.addListener(PREF_FILE_NAME, listener)
-```
 
-and remove it when it's no longer needed:
-
-```kotlin
+// later
 SafeBoxGlobalStateObserver.removeListener(PREF_FILE_NAME, listener)
 ```
 
-You can also query the current state at any time:
+You can also query the current state:
 
 ```kotlin
 val state = SafeBoxGlobalStateObserver.getCurrentState(PREF_FILE_NAME)

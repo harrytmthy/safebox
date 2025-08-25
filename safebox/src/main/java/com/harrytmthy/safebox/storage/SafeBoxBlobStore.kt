@@ -34,10 +34,11 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Memory-mapped storage engine used by SafeBox to persist encrypted key-value entries.
  *
- * This class provides low-level binary I/O with append-only semantics.
- * It's designed to be loaded once and kept in-memory via a higher-level index (e.g. in SafeBox).
+ * Provides low-level binary I/O with a compacted, length-prefixed layout. New writes prefer
+ * append, but entries may be overwritten in place when sizes match. Otherwise, the file is
+ * compacted to accommodate size changes.
  *
- * Keys and values are stored as length-prefixed byte sequences:
+ * Layout:
  * [keyLength:Short][valueLength:Int][keyBytes:ByteArray][valueBytes:ByteArray]
  */
 internal class SafeBoxBlobStore private constructor(private val file: File) {
@@ -163,10 +164,7 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
     /**
      * Returns the name of the backing file, excluding its extension.
      *
-     * This is used by the internal registry to uniquely identify open SafeBox instances
-     * and prevent concurrent access to the same file.
-     *
-     * @return The file name without extension.
+     * Useful for diagnostics and mapping state to a human-readable identifier.
      */
     internal fun getFileName(): String = file.nameWithoutExtension
 
