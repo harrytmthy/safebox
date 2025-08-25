@@ -20,15 +20,19 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_KEY_ALIAS
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.runner.RunWith
+import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -48,9 +52,45 @@ class SafeBoxTest {
 
     @After
     fun tearDown() {
-        safeBox.edit()
-            .clear()
-            .commit()
+        SafeBox.getOrNull(fileName)
+            ?.edit()
+            ?.clear()
+            ?.commit()
+
+        File(context.noBackupFilesDir, "$fileName.bin").delete()
+        File(context.noBackupFilesDir, "$DEFAULT_KEY_ALIAS.bin").delete()
+    }
+
+    @Test
+    fun create_then_get_shouldReturnSameInstance() {
+        safeBox = createSafeBox()
+
+        val instance = SafeBox.get(fileName)
+
+        assertTrue(safeBox === instance)
+    }
+
+    @Test
+    fun create_withConcurrentCalls_shouldReturnSameInstance() = runTest {
+        val createdInstance = AtomicReference<SafeBox>()
+        repeat(10) {
+            launch(Dispatchers.IO) {
+                val newInstance = createSafeBox()
+                val previousInstance = createdInstance.getAndSet(newInstance) ?: return@launch
+                assertTrue(newInstance === previousInstance)
+            }
+        }
+    }
+
+    @Test
+    fun create_withDifferentFileName_shouldReturnDifferentInstances() {
+        safeBox = createSafeBox()
+
+        val anotherSafeBox = createSafeBox(fileName = "test_safebox.bin")
+
+        assertTrue(safeBox !== anotherSafeBox)
+        assertTrue(safeBox === createSafeBox())
+        File(context.noBackupFilesDir, "test_safebox.bin").delete()
     }
 
     @Test
@@ -187,6 +227,7 @@ class SafeBoxTest {
     }
 
     private fun createSafeBox(
+        fileName: String = this.fileName,
         ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(),
         stateListener: SafeBoxStateListener? = null,
     ): SafeBox =
