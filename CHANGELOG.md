@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0-alpha01] - 2025-08-25
+
+### Added
+- **Getter APIs**: `SafeBox.get(fileName)` and `SafeBox.getOrNull(fileName)` for singleton-style retrieval. ([#64](https://github.com/harrytmthy/safebox/issues/64))
+- **Gradle caching**: Improved CI performance. ([#47](https://github.com/harrytmthy/safebox/issues/47))
+
+### Behavior Changes
+- `SafeBox.create(...)` now returns the same instance for a given filename. ([#58](https://github.com/harrytmthy/safebox/issues/58))
+- Deprecated `close()` and `closeWhenIdle()`. They are now no-ops. ([#58](https://github.com/harrytmthy/safebox/issues/58))
+
+### Changed
+- **Rename** `io.github.harrytmthy-dev` → `io.github.harrytmthy`. ([#45](https://github.com/harrytmthy/safebox/issues/45))
+- **Rename** `SafeBoxExecutor` → `CipherPoolExecutor`. ([#49](https://github.com/harrytmthy/safebox/issues/49))
+
+### Docs
+- Refreshed KDoc and README. ([#63](https://github.com/harrytmthy/safebox/issues/63))
+
+### Fixed
+- Rolls up fixes from 1.1.1–1.1.3, including serialized writes to prevent overlapping `.apply()`/`.commit()`. ([#60](https://github.com/harrytmthy/safebox/issues/60), [#51](https://github.com/harrytmthy/safebox/issues/51), [#54](https://github.com/harrytmthy/safebox/issues/54))
+
 ## [1.1.3] - 2025-08-24
 
 ### Fixed
