@@ -23,7 +23,7 @@ plugins {
 }
 
 group = "io.github.harrytmthy"
-version = "1.1.3"
+version = "1.2.0-alpha01"
 
 android {
     namespace = "com.harrytmthy.safebox"
