@@ -418,23 +418,29 @@ public class SafeBox private constructor(
                 stateListener?.let(safeBox.stateManager::setStateListener)
                 return safeBox
             }
-            val aesGcmCipherProvider = AesGcmCipherProvider.create(
-                alias = valueKeyStoreAlias,
-                aad = additionalAuthenticatedData,
-            )
-            val keyProvider = SecureRandomKeyProvider.create(
-                context = context,
-                fileName = keyAlias,
-                keySize = ChaCha20CipherProvider.KEY_SIZE,
-                algorithm = ChaCha20CipherProvider.ALGORITHM,
-                cipherProvider = aesGcmCipherProvider,
-            )
-            val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
-            val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
-            val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
-            val blobStore = SafeBoxBlobStore.create(context, fileName)
-            return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
-                .also { instances[fileName] = it }
+            return synchronized(instances) {
+                instances[fileName]?.let { safeBox ->
+                    stateListener?.let(safeBox.stateManager::setStateListener)
+                    return safeBox
+                }
+                val aesGcmCipherProvider = AesGcmCipherProvider.create(
+                    alias = valueKeyStoreAlias,
+                    aad = additionalAuthenticatedData,
+                )
+                val keyProvider = SecureRandomKeyProvider.create(
+                    context = context,
+                    fileName = keyAlias,
+                    keySize = ChaCha20CipherProvider.KEY_SIZE,
+                    algorithm = ChaCha20CipherProvider.ALGORITHM,
+                    cipherProvider = aesGcmCipherProvider,
+                )
+                val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
+                val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
+                val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
+                val blobStore = SafeBoxBlobStore.create(context, fileName)
+                SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
+                    .also { instances[fileName] = it }
+            }
         }
 
         /**
@@ -472,10 +478,34 @@ public class SafeBox private constructor(
                 stateListener?.let(safeBox.stateManager::setStateListener)
                 return safeBox
             }
-            val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
-            val blobStore = SafeBoxBlobStore.create(context, fileName)
-            return SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
-                .also { instances[fileName] = it }
+            return synchronized(instances) {
+                instances[fileName]?.let { safeBox ->
+                    stateListener?.let(safeBox.stateManager::setStateListener)
+                    return safeBox
+                }
+                val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
+                val blobStore = SafeBoxBlobStore.create(context, fileName)
+                SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
+                    .also { instances[fileName] = it }
+            }
         }
+
+        /**
+         * Returns the previously created instance for [fileName].
+         *
+         * @return The existing [SafeBox] instance.
+         * @throws IllegalStateException if [create] has not been called for this file.
+         */
+        @JvmStatic
+        public fun get(fileName: String): SafeBox =
+            instances[fileName] ?: error("SafeBox '$fileName' is not initialized.")
+
+        /**
+         * Returns the previously created instance for [fileName], or null if not initialized.
+         *
+         * @return The existing [SafeBox] instance, or null.
+         */
+        @JvmStatic
+        public fun getOrNull(fileName: String): SafeBox? = instances[fileName]
     }
 }
