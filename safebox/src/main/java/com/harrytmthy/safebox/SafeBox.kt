@@ -233,6 +233,7 @@ public class SafeBox private constructor(
     }
 
     override fun getAll(): Map<String, Any?> {
+        stateManager.awaitInitialReadBlocking()
         val decryptedEntries = HashMap<String, Any?>(entries.size, 1f)
         for (entry in entries) {
             val key = keyCipherProvider.decrypt(entry.key.value).toString(Charsets.UTF_8)
@@ -272,8 +273,10 @@ public class SafeBox private constructor(
             ?.let(byteDecoder::decodeBoolean)
             ?: defValue
 
-    override fun contains(key: String): Boolean =
-        entries.containsKey(key.toEncryptedKey())
+    override fun contains(key: String): Boolean {
+        stateManager.awaitInitialReadBlocking()
+        return entries.containsKey(key.toEncryptedKey())
+    }
 
     override fun edit(): SharedPreferences.Editor = Editor(delegate)
 
@@ -289,9 +292,11 @@ public class SafeBox private constructor(
         listeners.remove(listener)
     }
 
-    private fun getDecryptedValue(key: String): ByteArray? =
-        entries[key.toEncryptedKey()]
+    private fun getDecryptedValue(key: String): ByteArray? {
+        stateManager.awaitInitialReadBlocking()
+        return entries[key.toEncryptedKey()]
             ?.let(valueCipherProvider::decrypt)
+    }
 
     private suspend fun applyChanges(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
         if (cleared) {

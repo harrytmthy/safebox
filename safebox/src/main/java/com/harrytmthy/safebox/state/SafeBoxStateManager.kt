@@ -95,6 +95,12 @@ internal class SafeBoxStateManager(
         }
     }
 
+    internal fun awaitInitialReadBlocking() {
+        if (!initialReadCompleted.isCompleted) {
+            runBlocking { initialReadCompleted.await() }
+        }
+    }
+
     private fun updateState(newState: SafeBoxState) {
         stateListener?.onStateChanged(newState)
         SafeBoxGlobalStateObserver.updateState(fileName, newState)
