@@ -17,19 +17,13 @@
 package com.harrytmthy.safebox.storage
 
 import android.content.Context
-import android.util.Log
 import androidx.annotation.VisibleForTesting
 import com.harrytmthy.safebox.extensions.toBytes
-import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
-import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.ERROR
-import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.channels.FileChannel
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Memory-mapped storage engine used by SafeBox to persist encrypted key-value entries.
@@ -49,10 +43,6 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
 
     @VisibleForTesting
     internal val entryMetas = LinkedHashMap<Bytes, EntryMeta>()
-
-    private val initialLoadCompleted = AtomicBoolean(false)
-
-    private val initialLoadStrategy = AtomicReference(WARN)
 
     private val writeMutex = Mutex()
 
@@ -81,17 +71,11 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
                 entryMetas[encryptedKey] = EntryMeta(offset, entrySize)
                 offset += HEADER_SIZE + keyLength + valueLength
             }
-            initialLoadCompleted.set(true)
             entries
         }
 
     internal fun contains(encryptedKey: Bytes): Boolean {
-        checkInitialLoad()
         return entryMetas.containsKey(encryptedKey)
-    }
-
-    internal fun setInitialLoadStrategy(fallbackStrategy: ValueFallbackStrategy) {
-        initialLoadStrategy.set(fallbackStrategy)
     }
 
     /**
@@ -236,16 +220,6 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
             val updatedEntry = entries[index].copy(offset = offset)
             entryMetas[key] = updatedEntry
             offset += updatedEntry.size
-        }
-    }
-
-    private fun checkInitialLoad() {
-        if (initialLoadCompleted.get()) {
-            return
-        }
-        when (initialLoadStrategy.get()) {
-            ERROR -> error("Initial load is not yet completed.")
-            WARN -> Log.w("SafeBox", "A value was retrieved before initial load completed.")
         }
     }
 

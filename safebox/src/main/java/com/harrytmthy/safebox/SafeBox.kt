@@ -182,7 +182,7 @@ public class SafeBox private constructor(
      * @param fallbackStrategy The behavior to apply when access is premature
      */
     public fun setInitialLoadStrategy(fallbackStrategy: ValueFallbackStrategy) {
-        blobStore.setInitialLoadStrategy(fallbackStrategy)
+        // no-op
     }
 
     /**
