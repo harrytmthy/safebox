@@ -226,6 +226,26 @@ class SafeBoxTest {
         assertEquals(-1, safeBox.getInt("0", -1))
     }
 
+    @Test
+    fun apply_then_commit_whenRepeatedManyTimes_shouldReturnCorrectValues() {
+        safeBox = createSafeBox(ioDispatcher = Dispatchers.IO)
+
+        safeBox.edit().apply {
+            repeat(100) {
+                putInt(it.toString(), it)
+                if (it % 2 == 0) {
+                    apply()
+                } else {
+                    commit()
+                }
+            }
+        }
+
+        repeat(100) {
+            assertEquals(it, safeBox.getInt(it.toString(), -1))
+        }
+    }
+
     private fun createSafeBox(
         fileName: String = this.fileName,
         ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(),
