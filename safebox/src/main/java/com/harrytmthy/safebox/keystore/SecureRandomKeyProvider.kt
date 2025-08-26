@@ -68,7 +68,7 @@ internal class SecureRandomKeyProvider private constructor(
             } ?: createNewKey()
             val secretKey = key.toSecretKey()
             decryptedKey.set(secretKey)
-            return secretKey
+            secretKey
         }
     }
 
