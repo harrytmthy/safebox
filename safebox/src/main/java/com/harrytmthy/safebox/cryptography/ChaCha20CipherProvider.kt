@@ -40,34 +40,38 @@ internal class ChaCha20CipherProvider(
 
     private val cipherPool = SingletonCipherPoolProvider.getChaCha20CipherPool()
 
-    override fun encrypt(plaintext: ByteArray): ByteArray {
-        val iv = if (deterministic) {
-            MessageDigest.getInstance(DIGEST_SHA256).digest(plaintext).copyOf(IV_SIZE)
-        } else {
-            SecureRandomProvider.generate(IV_SIZE)
-        }
-        val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
-        val key = keyProvider.getOrCreateKey()
-        val encrypted = cipherPool.withCipher { cipher ->
-            cipher.init(Cipher.ENCRYPT_MODE, key, paramSpec)
-            cipher.doFinal(plaintext)
-        }
-        (key as? SafeSecretKey)?.releaseHeapCopy()
-        return iv + encrypted
-    }
+    private val cipherLock = Any()
 
-    override fun decrypt(ciphertext: ByteArray): ByteArray {
-        val iv = ciphertext.copyOfRange(0, IV_SIZE)
-        val actual = ciphertext.copyOfRange(IV_SIZE, ciphertext.size)
-        val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
-        val key = keyProvider.getOrCreateKey()
-        val plaintext = cipherPool.withCipher { cipher ->
-            cipher.init(Cipher.DECRYPT_MODE, key, paramSpec)
-            cipher.doFinal(actual)
+    override fun encrypt(plaintext: ByteArray): ByteArray =
+        synchronized(cipherLock) {
+            val iv = if (deterministic) {
+                MessageDigest.getInstance(DIGEST_SHA256).digest(plaintext).copyOf(IV_SIZE)
+            } else {
+                SecureRandomProvider.generate(IV_SIZE)
+            }
+            val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
+            val key = keyProvider.getOrCreateKey()
+            val encrypted = cipherPool.withCipher { cipher ->
+                cipher.init(Cipher.ENCRYPT_MODE, key, paramSpec)
+                cipher.doFinal(plaintext)
+            }
+            (key as? SafeSecretKey)?.releaseHeapCopy()
+            iv + encrypted
         }
-        (key as? SafeSecretKey)?.releaseHeapCopy()
-        return plaintext
-    }
+
+    override fun decrypt(ciphertext: ByteArray): ByteArray =
+        synchronized(cipherLock) {
+            val iv = ciphertext.copyOfRange(0, IV_SIZE)
+            val actual = ciphertext.copyOfRange(IV_SIZE, ciphertext.size)
+            val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
+            val key = keyProvider.getOrCreateKey()
+            val plaintext = cipherPool.withCipher { cipher ->
+                cipher.init(Cipher.DECRYPT_MODE, key, paramSpec)
+                cipher.doFinal(actual)
+            }
+            (key as? SafeSecretKey)?.releaseHeapCopy()
+            plaintext
+        }
 
     override fun destroyKey() {
         keyProvider.destroyKey()
