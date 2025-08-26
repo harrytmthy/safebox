@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.4] - 2025-08-27
+
+### Fixed
+- **Serialized cryptography:** Prevents MAC check failure when multiple threads performed crypto concurrently. ([#72](https://github.com/harrytmthy/safebox/issues/72))
+
 ## [1.1.3] - 2025-08-24
 
 ### Fixed
