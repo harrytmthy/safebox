@@ -38,7 +38,7 @@ internal class ChaCha20CipherProvider(
     private val deterministic: Boolean,
 ) : CipherProvider {
 
-    private val cipherPool = SingletonCipherPoolProvider.getChaCha20CipherPool()
+    private val cipherPool by lazy { SingletonCipherPoolProvider.getChaCha20CipherPool() }
 
     override fun encrypt(plaintext: ByteArray): ByteArray {
         val iv = if (deterministic) {
