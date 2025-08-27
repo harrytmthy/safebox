@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Cipher
 
 /**
+ * **Deprecated:** SafeBox now serializes crypto internally, where thread-safety is guaranteed.
+ *
  * A lightweight, coroutine-friendly object pool for [Cipher] instances.
  *
  * This pool ensures thread-safe and memory-efficient reuse of Cipher objects,
@@ -55,6 +57,7 @@ import javax.crypto.Cipher
  * }
  * ```
  */
+@Deprecated(message = "SafeBox no longer uses pooled ciphers. Will be removed in v1.3.")
 public class CipherPool @JvmOverloads constructor(
     initialSize: Int = DEFAULT_INITIAL_SIZE,
     maxSize: Int = DEFAULT_MAX_SIZE,
@@ -194,6 +197,7 @@ public class CipherPool @JvmOverloads constructor(
     }
 }
 
+@Deprecated(message = "SafeBox no longer uses pooled ciphers. Will be removed in v1.3.")
 public interface CipherPoolExecutor {
     fun executeLoadTask(task: () -> Unit)
     fun scheduleTrimmingTask(task: () -> Unit)

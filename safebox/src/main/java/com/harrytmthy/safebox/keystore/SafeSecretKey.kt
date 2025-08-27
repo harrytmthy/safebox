@@ -82,7 +82,7 @@ internal class SafeSecretKey(
             lastCopy.get()?.let { return it } // fast path after lock acquisition
             val copy = keyBuffer.toByteArray().xorInPlace(mask)
             lastCopy.set(copy)
-            return copy
+            copy
         }
     }
 
