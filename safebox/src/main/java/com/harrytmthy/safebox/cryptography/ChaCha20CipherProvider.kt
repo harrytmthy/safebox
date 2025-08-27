@@ -21,7 +21,10 @@ import android.security.keystore.KeyProperties.DIGEST_SHA256
 import com.harrytmthy.safebox.keystore.KeyProvider
 import com.harrytmthy.safebox.keystore.SafeSecretKey
 import org.bouncycastle.jcajce.spec.AEADParameterSpec
+import org.bouncycastle.jce.provider.BouncyCastleProvider
+import java.security.GeneralSecurityException
 import java.security.MessageDigest
+import java.security.Security
 import javax.crypto.Cipher
 
 /**
@@ -38,7 +41,15 @@ internal class ChaCha20CipherProvider(
     private val deterministic: Boolean,
 ) : CipherProvider {
 
-    private val cipherPool by lazy { SingletonCipherPoolProvider.getChaCha20CipherPool() }
+    private val cipher by lazy {
+        try {
+            Cipher.getInstance(TRANSFORMATION, BouncyCastleProvider.PROVIDER_NAME)
+        } catch (_: GeneralSecurityException) {
+            Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
+            Security.addProvider(BouncyCastleProvider())
+            Cipher.getInstance(TRANSFORMATION, BouncyCastleProvider.PROVIDER_NAME)
+        }
+    }
 
     private val cipherLock = Any()
 
@@ -51,10 +62,8 @@ internal class ChaCha20CipherProvider(
             }
             val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
             val key = keyProvider.getOrCreateKey()
-            val encrypted = cipherPool.withCipher { cipher ->
-                cipher.init(Cipher.ENCRYPT_MODE, key, paramSpec)
-                cipher.doFinal(plaintext)
-            }
+            cipher.init(Cipher.ENCRYPT_MODE, key, paramSpec)
+            val encrypted = cipher.doFinal(plaintext)
             (key as? SafeSecretKey)?.releaseHeapCopy()
             iv + encrypted
         }
@@ -65,10 +74,8 @@ internal class ChaCha20CipherProvider(
             val actual = ciphertext.copyOfRange(IV_SIZE, ciphertext.size)
             val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
             val key = keyProvider.getOrCreateKey()
-            val plaintext = cipherPool.withCipher { cipher ->
-                cipher.init(Cipher.DECRYPT_MODE, key, paramSpec)
-                cipher.doFinal(actual)
-            }
+            cipher.init(Cipher.DECRYPT_MODE, key, paramSpec)
+            val plaintext = cipher.doFinal(actual)
             (key as? SafeSecretKey)?.releaseHeapCopy()
             plaintext
         }

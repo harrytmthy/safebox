@@ -51,10 +51,10 @@ public enum class SafeBoxState {
     WRITING,
 
     /**
-     * **Deprecated:** This state is no longer emitted.
+     * **Deprecated:** SafeBox is always active and reusable.
      *
      * SafeBox has been closed and is no longer usable.
      */
-    @Deprecated(message = "This state is never emitted, as SafeBox is always active and reusable.")
+    @Deprecated(message = "This state is no longer emitted. Will be removed in v1.3.")
     CLOSED,
 }

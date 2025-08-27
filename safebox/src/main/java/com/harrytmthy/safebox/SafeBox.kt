@@ -172,6 +172,9 @@ public class SafeBox private constructor(
     }
 
     /**
+     * **Deprecated:** SafeBox reads now behave exactly like SharedPreferences, where `getXxx(...)`
+     * blocks the current thread until the initial load completes.
+     *
      * Sets the fallback behavior when values are accessed before the initial load completes.
      *
      * SafeBox performs a background load of previously written entries on initialization.
@@ -181,6 +184,7 @@ public class SafeBox private constructor(
      *
      * @param fallbackStrategy The behavior to apply when access is premature
      */
+    @Deprecated(message = "This method is now a no-op. Will be removed in v1.3.")
     public fun setInitialLoadStrategy(fallbackStrategy: ValueFallbackStrategy) {
         // no-op
     }
@@ -200,7 +204,7 @@ public class SafeBox private constructor(
     }
 
     /**
-     * **Deprecated:** SafeBox no longer supports instance closing.
+     * **Deprecated:** SafeBox no longer requires instance closing.
      *
      * Immediately closes the underlying file channel and releases resources.
      *
@@ -210,13 +214,13 @@ public class SafeBox private constructor(
      *
      * Closing during an active write can result in data corruption or incomplete persistence.
      */
-    @Deprecated(message = "This method is now a no-op, as SafeBox is always active and reusable.")
+    @Deprecated(message = "This method is now a no-op. Will be removed in v1.3.")
     public fun close() {
         // no-op
     }
 
     /**
-     * **Deprecated:** SafeBox no longer supports instance closing.
+     * **Deprecated:** SafeBox no longer requires instance closing.
      *
      * Closes the underlying file channel only after all pending writes have completed.
      *
@@ -227,7 +231,7 @@ public class SafeBox private constructor(
      * Internally, this launches a coroutine on [safeBoxScope] to wait until the SafeBox
      * becomes idle before releasing resources.
      */
-    @Deprecated(message = "This method is now a no-op, as SafeBox is always active and reusable.")
+    @Deprecated(message = "This method is now a no-op. Will be removed in v1.3.")
     public fun closeWhenIdle() {
         // no-op
     }
