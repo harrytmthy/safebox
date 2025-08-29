@@ -16,6 +16,7 @@
 
 package com.harrytmthy.safebox.state
 
+import android.util.Log
 import com.harrytmthy.safebox.SafeBox
 import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.state.SafeBoxState.IDLE
@@ -25,7 +26,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Manages the lifecycle state of a [SafeBox] instance and coordinates concurrent read/write access.
@@ -52,6 +56,10 @@ internal class SafeBoxStateManager(
 
     private val initialReadCompleted = CompletableDeferred<Unit>()
 
+    private val writeBarrier = AtomicReference(CompletableDeferred<Unit>().apply { complete(Unit) })
+
+    private val writeMutex = Mutex()
+
     fun setStateListener(stateListener: SafeBoxStateListener?) {
         this.stateListener = stateListener
     }
@@ -70,24 +78,49 @@ internal class SafeBoxStateManager(
         }
     }
 
-    inline fun launchCommitWithWritingState(crossinline block: suspend () -> Boolean): Boolean =
-        runBlocking {
-            withStateTransition(block)
-        }
-
-    inline fun launchApplyWithWritingState(crossinline block: suspend () -> Unit) {
-        safeBoxScope.launch(ioDispatcher) {
-            withStateTransition(block)
+    inline fun launchCommitWithWritingState(crossinline block: suspend () -> Unit): Boolean {
+        val currentWriteBarrier = CompletableDeferred<Unit>()
+        val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
+        return runBlocking {
+            try {
+                withStateTransition(previousWriteBarrier, block)
+                true
+            } catch (e: Exception) {
+                Log.e("SafeBox", "Failed to commit changes.", e)
+                false
+            } finally {
+                currentWriteBarrier.complete(Unit)
+            }
         }
     }
 
-    private suspend inline fun <T> withStateTransition(crossinline block: suspend () -> T): T {
+    inline fun launchApplyWithWritingState(crossinline block: suspend () -> Unit) {
+        val currentWriteBarrier = CompletableDeferred<Unit>()
+        val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
+        safeBoxScope.launch(ioDispatcher) {
+            try {
+                withStateTransition(previousWriteBarrier, block)
+            } catch (e: Exception) {
+                Log.e("SafeBox", "Failed to commit changes.", e)
+            } finally {
+                currentWriteBarrier.complete(Unit)
+            }
+        }
+    }
+
+    private suspend inline fun withStateTransition(
+        previousWriteBarrier: CompletableDeferred<Unit>,
+        crossinline block: suspend () -> Unit,
+    ) {
         initialReadCompleted.await()
         if (concurrentWriteCount.incrementAndGet() == 1) {
             updateState(WRITING)
         }
-        return try {
-            block()
+        try {
+            previousWriteBarrier.await()
+            writeMutex.withLock {
+                block()
+            }
         } finally {
             if (concurrentWriteCount.decrementAndGet() == 0) {
                 updateState(IDLE)
