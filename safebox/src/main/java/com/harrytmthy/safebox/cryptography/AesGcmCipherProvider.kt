@@ -65,6 +65,12 @@ internal class AesGcmCipherProvider private constructor(
         return cipher.doFinal(actualData)
     }
 
+    override fun rotateKey() {
+        keyProvider.rotateKey()
+    }
+
+    override fun shouldRotateKey(): Boolean = keyProvider.shouldRotateKey()
+
     internal companion object {
 
         private const val TRANSFORMATION = "AES/GCM/NoPadding"

@@ -39,6 +39,18 @@ public interface CipherProvider {
     fun decrypt(ciphertext: ByteArray): ByteArray
 
     /**
+     * Triggers key rotation by replacing the existing key with a new one.
+     */
+    fun rotateKey() = Unit
+
+    /**
+     * Decides whether or not key rotation must be done.
+     *
+     * @return `true` if key rotation must be done. `false` otherwise.
+     */
+    fun shouldRotateKey(): Boolean = false
+
+    /**
      * Destroys any associated cryptographic key material. This method is called when SafeBox
      * is permanently closed to prevent key leakage from memory.
      *
