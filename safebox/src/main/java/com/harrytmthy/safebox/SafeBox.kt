@@ -47,6 +47,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import javax.crypto.AEADBadTagException
 
 /**
  * SafeBox provides secure, high-performance key-value storage designed as a drop-in replacement
@@ -87,6 +88,8 @@ public class SafeBox private constructor(
     private val writeMutex = Mutex()
 
     private val writeBarrier = AtomicReference(CompletableDeferred<Unit>().apply { complete(Unit) })
+
+    private val scanScheduled = AtomicBoolean(false)
 
     private val delegate = object : Delegate {
 
@@ -143,7 +146,9 @@ public class SafeBox private constructor(
                 val keys = this@SafeBox.entries.keys.toHashSet()
                 this@SafeBox.entries.clear()
                 for (encryptedKey in keys) {
-                    val key = keyCipherProvider.decrypt(encryptedKey.value).toString(Charsets.UTF_8)
+                    val key = keyCipherProvider.tryDecrypt(encryptedKey.value)
+                        ?.toString(Charsets.UTF_8)
+                        ?: continue
                     listeners.forEach { it.onSharedPreferenceChanged(this@SafeBox, key) }
                 }
             }
@@ -240,8 +245,10 @@ public class SafeBox private constructor(
         stateManager.awaitInitialReadBlocking()
         val decryptedEntries = HashMap<String, Any?>(entries.size, 1f)
         for (entry in entries) {
-            val key = keyCipherProvider.decrypt(entry.key.value).toString(Charsets.UTF_8)
-            val value = valueCipherProvider.decrypt(entry.value)
+            val key = keyCipherProvider.tryDecrypt(entry.key.value)
+                ?.toString(Charsets.UTF_8)
+                ?: continue
+            val value = valueCipherProvider.tryDecrypt(entry.value) ?: continue
             decryptedEntries[key] = byteDecoder.decodeAny(value)
         }
         return decryptedEntries
@@ -299,7 +306,7 @@ public class SafeBox private constructor(
     private fun getDecryptedValue(key: String): ByteArray? {
         stateManager.awaitInitialReadBlocking()
         return entries[key.toEncryptedKey()]
-            ?.let(valueCipherProvider::decrypt)
+            ?.let { valueCipherProvider.tryDecrypt(it) }
     }
 
     private suspend fun applyChanges(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
@@ -322,6 +329,43 @@ public class SafeBox private constructor(
             }
         }
     }
+
+    private fun scanAndRemoveDeadEntries() {
+        if (!scanScheduled.compareAndSet(false, true)) {
+            return
+        }
+        val currentWriteBarrier = CompletableDeferred<Unit>()
+        val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
+        stateManager.launchApplyWithWritingState {
+            try {
+                previousWriteBarrier.await()
+                val deadKeys = ArrayList<Bytes>()
+                for ((encryptedKey, encryptedValue) in entries) {
+                    if (valueCipherProvider.tryDecrypt(encryptedValue) == null) {
+                        entries.remove(encryptedKey)
+                        deadKeys.add(encryptedKey)
+                    }
+                }
+                if (deadKeys.isNotEmpty()) {
+                    writeMutex.withLock {
+                        blobStore.delete(*deadKeys.toTypedArray())
+                    }
+                }
+            } finally {
+                currentWriteBarrier.complete(Unit)
+                scanScheduled.set(false)
+            }
+        }
+    }
+
+    private fun CipherProvider.tryDecrypt(encryptedValue: ByteArray): ByteArray? =
+        try {
+            decrypt(encryptedValue)
+        } catch (e: AEADBadTagException) {
+            Log.e("SafeBox", "Decrypt failed due to AEADBadTagException.", e)
+            scanAndRemoveDeadEntries()
+            null
+        }
 
     private fun String.toEncryptedKey(): Bytes =
         keyCipherProvider.encrypt(this.toByteArray()).toBytes()
@@ -382,7 +426,6 @@ public class SafeBox private constructor(
         @VisibleForTesting
         internal const val DEFAULT_KEY_ALIAS = "SafeBoxKey"
 
-        @VisibleForTesting
         internal const val DEFAULT_VALUE_KEYSTORE_ALIAS = "SafeBoxValue"
 
         @VisibleForTesting
@@ -402,7 +445,6 @@ public class SafeBox private constructor(
          * @param fileName The name of the backing file used for persistence
          * @param keyAlias The identifier for storing the key (used to locate its encrypted form)
          * @param valueKeyStoreAlias The Android Keystore alias used for AES-GCM key generation
-         * @param additionalAuthenticatedData Optional AAD bound to the AES-GCM (default: fileName)
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
          * @param stateListener The listener to observe instance-bound state transitions
          *
@@ -416,7 +458,6 @@ public class SafeBox private constructor(
             fileName: String,
             keyAlias: String = DEFAULT_KEY_ALIAS,
             valueKeyStoreAlias: String = DEFAULT_VALUE_KEYSTORE_ALIAS,
-            additionalAuthenticatedData: ByteArray = fileName.toByteArray(),
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
@@ -431,11 +472,12 @@ public class SafeBox private constructor(
                 }
                 val aesGcmCipherProvider = AesGcmCipherProvider.create(
                     alias = valueKeyStoreAlias,
-                    aad = additionalAuthenticatedData,
+                    aad = fileName.toByteArray(),
                 )
                 val keyProvider = SecureRandomKeyProvider.create(
                     context = context,
-                    fileName = keyAlias,
+                    fileName = fileName,
+                    keyAlias = keyAlias,
                     keySize = ChaCha20CipherProvider.KEY_SIZE,
                     algorithm = ChaCha20CipherProvider.ALGORITHM,
                     cipherProvider = aesGcmCipherProvider,
@@ -448,6 +490,49 @@ public class SafeBox private constructor(
                     .also { instances[fileName] = it }
             }
         }
+
+        /**
+         * **Deprecation:** SafeBox no longer supports custom AAD. Changing it can cause MAC check
+         * failures and dead entries. Consequently, `additionalAuthenticatedData` is ignored, and
+         * this overload will be removed in v1.3. `keyAlias` and `valueKeyStoreAlias` are planned
+         * for deprecation in v1.3.
+         *
+         * Creates a [SafeBox] instance with secure defaults:
+         * - Keys are deterministically encrypted using [ChaCha20CipherProvider].
+         * - Values are encrypted with the same ChaCha20 key, but with randomized IV per encryption.
+         * - The ChaCha20 secret is encrypted using AES-GCM via [SecureRandomKeyProvider].
+         *
+         * This method handles secure initialization and is recommended for most use cases.
+         *
+         * **Common pitfalls:**
+         * - Do NOT create multiple SafeBox instances with the same file name.
+         * - Avoid scoping SafeBox to short-lived components (e.g. ViewModel).
+         *
+         * @param context The application context
+         * @param fileName The name of the backing file used for persistence
+         * @param keyAlias The identifier for storing the key (used to locate its encrypted form)
+         * @param valueKeyStoreAlias The Android Keystore alias used for AES-GCM key generation
+         * @param additionalAuthenticatedData Optional AAD bound to the AES-GCM (default: fileName)
+         * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
+         * @param stateListener The listener to observe instance-bound state transitions
+         *
+         * @return A fully configured [SafeBox] instance
+         * @throws IllegalStateException if the file is already registered.
+         */
+        @Deprecated("additionalAuthenticatedData is ignored. Use the overload without it.")
+        @JvmOverloads
+        @JvmStatic
+        @Throws(IllegalStateException::class)
+        public fun create(
+            context: Context,
+            fileName: String,
+            keyAlias: String = DEFAULT_KEY_ALIAS,
+            valueKeyStoreAlias: String = DEFAULT_VALUE_KEYSTORE_ALIAS,
+            additionalAuthenticatedData: ByteArray,
+            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            stateListener: SafeBoxStateListener? = null,
+        ): SafeBox =
+            create(context, fileName, keyAlias, valueKeyStoreAlias, ioDispatcher, stateListener)
 
         /**
          * Creates a [SafeBox] instance using a custom [CipherProvider] implementation.

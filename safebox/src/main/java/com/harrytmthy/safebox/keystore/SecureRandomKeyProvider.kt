@@ -22,6 +22,7 @@ import android.util.Log
 import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.cryptography.SecureRandomProvider
 import java.io.File
+import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicReference
@@ -51,6 +52,20 @@ internal class SecureRandomKeyProvider private constructor(
 
     private val lock = Any()
 
+    init {
+        if (cipherProvider.shouldRotateKey() && encryptedKeyBytes.isNotEmpty()) {
+            try {
+                val key = cipherProvider.decrypt(encryptedKeyBytes)
+                cipherProvider.rotateKey()
+                val encryptedKey = cipherProvider.encrypt(key)
+                replaceFileAtomically(encryptedKey)
+                encryptedKeyBytes = encryptedKey
+            } catch (e: Exception) {
+                Log.e("SafeBox", "Failed to rewrap DEK.", e)
+            }
+        }
+    }
+
     /**
      * Retrieves or generates the symmetric key, decrypting from disk if necessary.
      * The key is cached in memory for a short period before being cleared.
@@ -72,6 +87,11 @@ internal class SecureRandomKeyProvider private constructor(
         }
     }
 
+    override fun rotateKey() {
+        val newKey = createNewKey().toSecretKey()
+        decryptedKey.set(newKey)
+    }
+
     override fun destroyKey() {
         decryptedKey.get()?.destroy()
         decryptedKey.set(null)
@@ -80,9 +100,29 @@ internal class SecureRandomKeyProvider private constructor(
     private fun createNewKey(): ByteArray {
         val generatedKey = SecureRandomProvider.generate(keySize)
         val encryptedKey = cipherProvider.encrypt(generatedKey)
+        replaceFileAtomically(encryptedKey)
         encryptedKeyBytes = encryptedKey
-        encryptedKeyFile.writeBytes(encryptedKey)
         return generatedKey
+    }
+
+    private fun replaceFileAtomically(encryptedKey: ByteArray) {
+        val directory = encryptedKeyFile.parentFile ?: error("Missing parent directory")
+        val temporaryFile = File(directory, encryptedKeyFile.name + ".tmp")
+        try {
+            temporaryFile.outputStream().use { outputStream ->
+                outputStream.write(encryptedKey)
+                outputStream.fd.sync()
+            }
+            if (temporaryFile.renameTo(encryptedKeyFile)) {
+                return
+            }
+            encryptedKeyFile.delete()
+            if (!temporaryFile.renameTo(encryptedKeyFile)) {
+                error("Failed to persist wrapped DEK atomically.")
+            }
+        } finally {
+            temporaryFile.delete()
+        }
     }
 
     private fun ByteArray.toSecretKey(): SecretKey {
@@ -95,15 +135,43 @@ internal class SecureRandomKeyProvider private constructor(
         internal fun create(
             context: Context,
             fileName: String,
+            keyAlias: String,
             keySize: Int,
             algorithm: String,
             cipherProvider: CipherProvider,
         ): SecureRandomKeyProvider {
-            val file = File(context.noBackupFilesDir, "$fileName.bin")
-            if (!file.exists()) {
-                file.createNewFile()
-            }
+            val file = getEncryptedKeyFile(context, fileName, keyAlias)
             return SecureRandomKeyProvider(file, keySize, algorithm, cipherProvider)
+        }
+
+        private fun getEncryptedKeyFile(
+            context: Context,
+            fileName: String,
+            keyAlias: String,
+        ): File {
+            val oldDestination = File(context.noBackupFilesDir, "$keyAlias.bin")
+            val newDestination = File(context.noBackupFilesDir, "$fileName.key.bin")
+            if (newDestination.exists() && newDestination.length() > 0L) {
+                return newDestination
+            }
+            newDestination.createNewFile()
+            if (!oldDestination.exists()) {
+                return newDestination
+            }
+            try {
+                oldDestination.inputStream().use { input ->
+                    newDestination.outputStream().use { output ->
+                        input.copyTo(output)
+                        output.fd.sync()
+                    }
+                }
+            } catch (e: IOException) {
+                Log.e("SafeBox", "Failed to migrate wrapped DEK.", e)
+                newDestination.delete()
+                return oldDestination
+            }
+            oldDestination.delete()
+            return newDestination
         }
     }
 }

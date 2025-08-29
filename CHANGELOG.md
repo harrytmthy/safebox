@@ -22,6 +22,14 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Rolls up fixes from 1.1.1–1.1.3, including serialized writes to prevent overlapping `.apply()`/`.commit()`. ([#60](https://github.com/harrytmthy/safebox/issues/60), [#51](https://github.com/harrytmthy/safebox/issues/51), [#54](https://github.com/harrytmthy/safebox/issues/54))
 
+## [1.1.5] - 2025-08-29
+
+### Fixed
+- **Handle & prevent dead entries:** Prevent unintentional KEK rotations. When `AEADBadTagException` occurs, SafeBox safely purges unreadable values. ([#72](https://github.com/harrytmthy/safebox/issues/72))
+
+### Deprecated
+- **AAD-taking factory:** AAD is now ignored and planned for removal in **v1.3**. ([#72](https://github.com/harrytmthy/safebox/issues/72))
+
 ## [1.1.4] - 2025-08-27
 
 ### Fixed

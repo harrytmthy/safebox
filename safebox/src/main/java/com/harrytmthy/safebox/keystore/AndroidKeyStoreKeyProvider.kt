@@ -19,7 +19,9 @@ package com.harrytmthy.safebox.keystore
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties.PURPOSE_ENCRYPT
 import android.security.keystore.KeyProperties.PURPOSE_SIGN
+import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
 import java.security.KeyStore
+import java.security.KeyStore.SecretKeyEntry
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
@@ -48,22 +50,22 @@ import javax.crypto.SecretKey
  * @param parameterSpecBuilder Lambda that configures the [KeyGenParameterSpec.Builder].
  */
 internal class AndroidKeyStoreKeyProvider(
-    alias: String,
+    private val alias: String,
     algorithm: String,
     purposes: Int,
     parameterSpecBuilder: KeyGenParameterSpec.Builder.() -> Unit,
 ) : KeyProvider {
 
-    private val key: SecretKey by lazy {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    private val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 
-        if (keyStore.containsAlias(alias)) {
-            val entry = keyStore.getEntry(alias, null) as KeyStore.SecretKeyEntry
+    private val defaultKey by lazy {
+        if (keyStore.containsAlias(DEFAULT_VALUE_KEYSTORE_ALIAS)) {
+            val entry = keyStore.getEntry(DEFAULT_VALUE_KEYSTORE_ALIAS, null) as SecretKeyEntry
             entry.secretKey
         } else {
             val keyGenerator = KeyGenerator.getInstance(algorithm, ANDROID_KEYSTORE)
             keyGenerator.init(
-                KeyGenParameterSpec.Builder(alias, purposes)
+                KeyGenParameterSpec.Builder(DEFAULT_VALUE_KEYSTORE_ALIAS, purposes)
                     .apply(parameterSpecBuilder)
                     .build(),
             )
@@ -71,7 +73,32 @@ internal class AndroidKeyStoreKeyProvider(
         }
     }
 
-    override fun getOrCreateKey(): SecretKey = key
+    private val aliasKey by lazy {
+        if (keyStore.containsAlias(alias)) {
+            val entry = keyStore.getEntry(alias, null) as SecretKeyEntry
+            entry.secretKey
+        } else {
+            defaultKey
+        }
+    }
+
+    override fun getOrCreateKey(): SecretKey =
+        if (keyStore.containsAlias(DEFAULT_VALUE_KEYSTORE_ALIAS)) {
+            defaultKey
+        } else {
+            aliasKey
+        }
+
+    override fun rotateKey() {
+        defaultKey // Triggers lazy-init
+        keyStore.deleteEntry(alias)
+    }
+
+    override fun shouldRotateKey(): Boolean {
+        val defaultExists = keyStore.containsAlias(DEFAULT_VALUE_KEYSTORE_ALIAS)
+        val legacyExists = alias != DEFAULT_VALUE_KEYSTORE_ALIAS && keyStore.containsAlias(alias)
+        return !defaultExists || legacyExists
+    }
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"

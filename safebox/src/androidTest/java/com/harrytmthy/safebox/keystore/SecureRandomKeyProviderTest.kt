@@ -41,6 +41,7 @@ class SecureRandomKeyProviderTest {
         provider = SecureRandomKeyProvider.create(
             context = context,
             fileName = "test_key",
+            keyAlias = "test_key",
             keySize = 32,
             algorithm = "ChaCha20",
             cipherProvider = cipher,
@@ -69,6 +70,7 @@ class SecureRandomKeyProviderTest {
         val newInstance = SecureRandomKeyProvider.create(
             context = context,
             fileName = "test_key",
+            keyAlias = "test_key",
             keySize = 32,
             algorithm = "ChaCha20",
             cipherProvider = AesGcmCipherProvider.create("test-gcm-alias", "test".toByteArray()),
