@@ -38,11 +38,8 @@ import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.storage.SafeBoxBlobStore
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -85,10 +82,6 @@ public class SafeBox private constructor(
 
     private val listeners = CopyOnWriteArrayList<OnSharedPreferenceChangeListener>()
 
-    private val writeMutex = Mutex()
-
-    private val writeBarrier = AtomicReference(CompletableDeferred<Unit>().apply { complete(Unit) })
-
     private val scanScheduled = AtomicBoolean(false)
 
     private val delegate = object : Delegate {
@@ -101,21 +94,8 @@ public class SafeBox private constructor(
                 entries.clear() // Prevents stale mutations on reused editor instance
                 updateEntries(entriesToWrite, cleared)
             }
-            val currentWriteBarrier = CompletableDeferred<Unit>()
-            val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
             return stateManager.launchCommitWithWritingState {
-                try {
-                    previousWriteBarrier.await()
-                    writeMutex.withLock {
-                        applyChanges(entriesToWrite, cleared)
-                    }
-                    true
-                } catch (e: Exception) {
-                    Log.e("SafeBox", "Failed to commit changes.", e)
-                    false
-                } finally {
-                    currentWriteBarrier.complete(Unit)
-                }
+                applyChanges(entriesToWrite, cleared)
             }
         }
 
@@ -125,19 +105,8 @@ public class SafeBox private constructor(
                 entries.clear() // Prevents stale mutations on reused editor instance
                 updateEntries(entriesToWrite, cleared)
             }
-            val currentWriteBarrier = CompletableDeferred<Unit>()
-            val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
             stateManager.launchApplyWithWritingState {
-                try {
-                    previousWriteBarrier.await()
-                    writeMutex.withLock {
-                        applyChanges(entriesToWrite, cleared)
-                    }
-                } catch (e: Exception) {
-                    Log.e("SafeBox", "Failed to commit changes.", e)
-                } finally {
-                    currentWriteBarrier.complete(Unit)
-                }
+                applyChanges(entriesToWrite, cleared)
             }
         }
 
@@ -334,11 +303,8 @@ public class SafeBox private constructor(
         if (!scanScheduled.compareAndSet(false, true)) {
             return
         }
-        val currentWriteBarrier = CompletableDeferred<Unit>()
-        val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
         stateManager.launchApplyWithWritingState {
             try {
-                previousWriteBarrier.await()
                 val deadKeys = ArrayList<Bytes>()
                 for ((encryptedKey, encryptedValue) in entries) {
                     if (valueCipherProvider.tryDecrypt(encryptedValue) == null) {
@@ -347,12 +313,9 @@ public class SafeBox private constructor(
                     }
                 }
                 if (deadKeys.isNotEmpty()) {
-                    writeMutex.withLock {
-                        blobStore.delete(*deadKeys.toTypedArray())
-                    }
+                    blobStore.delete(*deadKeys.toTypedArray())
                 }
             } finally {
-                currentWriteBarrier.complete(Unit)
                 scanScheduled.set(false)
             }
         }
