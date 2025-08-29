@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0-alpha02] - 2025-08-29
+
+### Behavior Changes
+- **SharedPreferences parity for reads:** `getXxx()` now blocks until the initial load completes. ([#71](https://github.com/harrytmthy/safebox/issues/71))
+
+### Fixed
+- **Handle & prevent dead entries:** Carry-over from 1.1.5. Prevents unintentional KEK rotations. When `AEADBadTagException` occurs, SafeBox purges unreadable values safely. ([#72](https://github.com/harrytmthy/safebox/issues/72))
+
+### Deprecated
+- **CipherPool** and **CipherPoolExecutor:** Planned for removal in **v1.3**. ([#78](https://github.com/harrytmthy/safebox/issues/78))
+- **AAD-taking factory:** AAD is now ignored and planned for removal in **v1.3**. ([#72](https://github.com/harrytmthy/safebox/issues/72))
+- **`setInitialLoadStrategy(...)`:** Now a no-op. Planned for removal in **v1.3**. ([#68](https://github.com/harrytmthy/safebox/issues/68))
+
+### Removed
+- **SingletonCipherPoolProvider:** Stale internal helper that supported CipherPool. ([#78](https://github.com/harrytmthy/safebox/issues/78))
+
 ## [1.2.0-alpha01] - 2025-08-25
 
 ### Added
