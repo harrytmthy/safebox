@@ -19,23 +19,19 @@ package com.harrytmthy.safebox
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener
-import android.util.Log
 import androidx.annotation.VisibleForTesting
 import com.harrytmthy.safebox.SafeBox.Action.Put
 import com.harrytmthy.safebox.SafeBox.Action.Remove
 import com.harrytmthy.safebox.SafeBox.Companion.create
-import com.harrytmthy.safebox.cryptography.AesGcmCipherProvider
 import com.harrytmthy.safebox.cryptography.ChaCha20CipherProvider
 import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.decoder.ByteDecoder
-import com.harrytmthy.safebox.extensions.safeBoxScope
+import com.harrytmthy.safebox.engine.SafeBoxEngine
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.extensions.toEncodedByteArray
 import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
 import com.harrytmthy.safebox.state.SafeBoxStateListener
-import com.harrytmthy.safebox.state.SafeBoxStateManager
 import com.harrytmthy.safebox.storage.Bytes
-import com.harrytmthy.safebox.storage.SafeBoxBlobStore
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
 import kotlinx.coroutines.CoroutineDispatcher
@@ -44,7 +40,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
-import javax.crypto.AEADBadTagException
 
 /**
  * SafeBox provides secure, high-performance key-value storage designed as a drop-in replacement
@@ -62,87 +57,25 @@ import javax.crypto.AEADBadTagException
  * Instances should always be obtained using the static [create] methods, which handle secure
  * initialization and configuration.
  *
- * @param blobStore Internal storage engine managing encrypted key-value pairs.
- * @param keyCipherProvider Cipher used for encrypting and decrypting keys (deterministic).
- * @param valueCipherProvider Cipher used for encrypting and decrypting values (randomized).
- * @param stateManager Responsible for managing SafeBox lifecycle states and its concurrency.
+ * @param engine Internal worker that loads/saves encrypted data and manages runtime state.
+ * It also notifies this instance when a key changes so registered listeners get updates.
+ * @param castFailureStrategy Controls how SafeBox handles type mismatches on read
+ * (e.g. log a warning and return the provided default).
  */
 public class SafeBox private constructor(
-    private val blobStore: SafeBoxBlobStore,
-    private val keyCipherProvider: CipherProvider,
-    private val valueCipherProvider: CipherProvider,
-    private val stateManager: SafeBoxStateManager,
+    private val engine: SafeBoxEngine,
+    private val castFailureStrategy: AtomicReference<ValueFallbackStrategy>,
 ) : SharedPreferences {
-
-    private val entries: MutableMap<Bytes, ByteArray> = ConcurrentHashMap()
-
-    private val castFailureStrategy = AtomicReference(WARN)
-
-    private val byteDecoder = ByteDecoder(castFailureStrategy::get)
 
     private val listeners = CopyOnWriteArrayList<OnSharedPreferenceChangeListener>()
 
-    private val scanScheduled = AtomicBoolean(false)
-
-    private val delegate = object : Delegate {
-
-        private val updateLock = Any()
-
-        override fun commit(entries: LinkedHashMap<String, Action>, cleared: Boolean): Boolean {
-            val entriesToWrite = LinkedHashMap(entries)
-            synchronized(updateLock) {
-                entries.clear() // Prevents stale mutations on reused editor instance
-                updateEntries(entriesToWrite, cleared)
-            }
-            return stateManager.launchCommitWithWritingState {
-                applyChanges(entriesToWrite, cleared)
-            }
-        }
-
-        override fun apply(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
-            val entriesToWrite = LinkedHashMap(entries)
-            synchronized(updateLock) {
-                entries.clear() // Prevents stale mutations on reused editor instance
-                updateEntries(entriesToWrite, cleared)
-            }
-            stateManager.launchApplyWithWritingState {
-                applyChanges(entriesToWrite, cleared)
-            }
-        }
-
-        private fun updateEntries(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
-            if (cleared) {
-                val keys = this@SafeBox.entries.keys.toHashSet()
-                this@SafeBox.entries.clear()
-                for (encryptedKey in keys) {
-                    val key = keyCipherProvider.tryDecrypt(encryptedKey.value)
-                        ?.toString(Charsets.UTF_8)
-                        ?: continue
-                    listeners.forEach { it.onSharedPreferenceChanged(this@SafeBox, key) }
-                }
-            }
-            for ((key, action) in entries) {
-                when (action) {
-                    is Put -> {
-                        val encryptedKey = key.toEncryptedKey()
-                        val encryptedValue = action.encodedValue.value
-                            .let(valueCipherProvider::encrypt)
-                        this@SafeBox.entries[encryptedKey] = encryptedValue
-                    }
-                    is Remove -> {
-                        val encryptedKey = key.toEncryptedKey()
-                        this@SafeBox.entries.remove(encryptedKey)
-                    }
-                }
+    init {
+        val callback = object : SafeBoxEngine.Callback {
+            override fun onEntryChanged(key: String) {
                 listeners.forEach { it.onSharedPreferenceChanged(this@SafeBox, key) }
             }
         }
-    }
-
-    init {
-        stateManager.launchWithStartingState {
-            entries += blobStore.loadPersistedEntries()
-        }
+        engine.setCallback(callback)
     }
 
     /**
@@ -150,11 +83,6 @@ public class SafeBox private constructor(
      * blocks the current thread until the initial load completes.
      *
      * Sets the fallback behavior when values are accessed before the initial load completes.
-     *
-     * SafeBox performs a background load of previously written entries on initialization.
-     * By default, if a `getXxx(...)` call is made before this is complete, a warning is logged.
-     *
-     * Use this to configure whether such access should be warned, or result in an error.
      *
      * @param fallbackStrategy The behavior to apply when access is premature
      */
@@ -181,12 +109,6 @@ public class SafeBox private constructor(
      * **Deprecated:** SafeBox no longer requires instance closing.
      *
      * Immediately closes the underlying file channel and releases resources.
-     *
-     * ⚠️ Once closed, this instance becomes *permanently unusable*. Any further access will fail.
-     *
-     * ⚠️ Only use this method when you're certain that no writes are in progress.
-     *
-     * Closing during an active write can result in data corruption or incomplete persistence.
      */
     @Deprecated(message = "This method is now a no-op. Will be removed in v1.3.")
     public fun close() {
@@ -197,189 +119,85 @@ public class SafeBox private constructor(
      * **Deprecated:** SafeBox no longer requires instance closing.
      *
      * Closes the underlying file channel only after all pending writes have completed.
-     *
-     * ⚠️ Once closed, this instance becomes *permanently unusable*. Any further access will fail.
-     *
-     * ✅ This is the recommended way to dispose of SafeBox in async environments.
-     *
-     * Internally, this launches a coroutine on [safeBoxScope] to wait until the SafeBox
-     * becomes idle before releasing resources.
      */
     @Deprecated(message = "This method is now a no-op. Will be removed in v1.3.")
     public fun closeWhenIdle() {
         // no-op
     }
 
-    override fun getAll(): Map<String, Any?> {
-        stateManager.awaitInitialReadBlocking()
-        val decryptedEntries = HashMap<String, Any?>(entries.size, 1f)
-        for (entry in entries) {
-            val key = keyCipherProvider.tryDecrypt(entry.key.value)
-                ?.toString(Charsets.UTF_8)
-                ?: continue
-            val value = valueCipherProvider.tryDecrypt(entry.value) ?: continue
-            decryptedEntries[key] = byteDecoder.decodeAny(value)
-        }
-        return decryptedEntries
-    }
+    override fun getAll(): Map<String, Any?> =
+        engine.getEntries()
 
     override fun getString(key: String, defValue: String?): String? =
-        getDecryptedValue(key)
-            ?.let(byteDecoder::decodeString)
-            ?: defValue
+        engine.getValue(key, defValue)
 
     override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? =
-        getDecryptedValue(key)
-            ?.let(byteDecoder::decodeStringSet)
-            ?: defValues
+        engine.getValue(key, defValues)
 
     override fun getInt(key: String, defValue: Int): Int =
-        getDecryptedValue(key)
-            ?.let(byteDecoder::decodeInt)
-            ?: defValue
+        engine.getValue(key, defValue)
 
     override fun getLong(key: String, defValue: Long): Long =
-        getDecryptedValue(key)
-            ?.let(byteDecoder::decodeLong)
-            ?: defValue
+        engine.getValue(key, defValue)
 
     override fun getFloat(key: String, defValue: Float): Float =
-        getDecryptedValue(key)
-            ?.let(byteDecoder::decodeFloat)
-            ?: defValue
+        engine.getValue(key, defValue)
 
     override fun getBoolean(key: String, defValue: Boolean): Boolean =
-        getDecryptedValue(key)
-            ?.let(byteDecoder::decodeBoolean)
-            ?: defValue
+        engine.getValue(key, defValue)
 
-    override fun contains(key: String): Boolean {
-        stateManager.awaitInitialReadBlocking()
-        return entries.containsKey(key.toEncryptedKey())
+    override fun contains(key: String): Boolean =
+        engine.contains(key)
+
+    override fun edit(): SharedPreferences.Editor = Editor(engine)
+
+    override fun registerOnSharedPreferenceChangeListener(l: OnSharedPreferenceChangeListener) {
+        listeners.add(l)
     }
 
-    override fun edit(): SharedPreferences.Editor = Editor(delegate)
-
-    override fun registerOnSharedPreferenceChangeListener(
-        listener: OnSharedPreferenceChangeListener,
-    ) {
-        listeners.add(listener)
+    override fun unregisterOnSharedPreferenceChangeListener(l: OnSharedPreferenceChangeListener) {
+        listeners.remove(l)
     }
 
-    override fun unregisterOnSharedPreferenceChangeListener(
-        listener: OnSharedPreferenceChangeListener,
-    ) {
-        listeners.remove(listener)
-    }
+    private class Editor(private val engine: SafeBoxEngine) : SharedPreferences.Editor {
 
-    private fun getDecryptedValue(key: String): ByteArray? {
-        stateManager.awaitInitialReadBlocking()
-        return entries[key.toEncryptedKey()]
-            ?.let { valueCipherProvider.tryDecrypt(it) }
-    }
-
-    private suspend fun applyChanges(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
-        if (cleared) {
-            blobStore.deleteAll()
-        }
-        for ((key, action) in entries) {
-            when (action) {
-                is Put -> {
-                    val encryptedKey = key.toEncryptedKey()
-                    val encryptedValue = action.encodedValue.value.let(valueCipherProvider::encrypt)
-                    blobStore.write(encryptedKey, encryptedValue)
-                }
-                is Remove -> {
-                    val encryptedKey = key.toEncryptedKey()
-                    if (blobStore.contains(encryptedKey)) {
-                        blobStore.delete(encryptedKey)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun scanAndRemoveDeadEntries() {
-        if (!scanScheduled.compareAndSet(false, true)) {
-            return
-        }
-        stateManager.launchApplyWithWritingState {
-            try {
-                val deadKeys = ArrayList<Bytes>()
-                for ((encryptedKey, encryptedValue) in entries) {
-                    if (valueCipherProvider.tryDecrypt(encryptedValue) == null) {
-                        entries.remove(encryptedKey)
-                        deadKeys.add(encryptedKey)
-                    }
-                }
-                if (deadKeys.isNotEmpty()) {
-                    blobStore.delete(*deadKeys.toTypedArray())
-                }
-            } finally {
-                scanScheduled.set(false)
-            }
-        }
-    }
-
-    private fun CipherProvider.tryDecrypt(encryptedValue: ByteArray): ByteArray? =
-        try {
-            decrypt(encryptedValue)
-        } catch (e: AEADBadTagException) {
-            Log.e("SafeBox", "Decrypt failed due to AEADBadTagException.", e)
-            scanAndRemoveDeadEntries()
-            null
-        }
-
-    private fun String.toEncryptedKey(): Bytes =
-        keyCipherProvider.encrypt(this.toByteArray()).toBytes()
-
-    private class Editor(private val delegate: Delegate) : SharedPreferences.Editor {
-
-        private val entries = LinkedHashMap<String, Action>()
+        private val actions = LinkedHashMap<String, Action>()
 
         private val cleared = AtomicBoolean(false)
 
         override fun putString(key: String, value: String?): SharedPreferences.Editor =
-            apply { entries[key] = value?.toEncodedByteArray()?.toBytes()?.let(::Put) ?: Remove }
+            apply { actions[key] = value?.toEncodedByteArray()?.toBytes()?.let(::Put) ?: Remove }
 
         override fun putStringSet(key: String, values: Set<String>?): SharedPreferences.Editor =
-            apply { entries[key] = values?.toEncodedByteArray()?.toBytes()?.let(::Put) ?: Remove }
+            apply { actions[key] = values?.toEncodedByteArray()?.toBytes()?.let(::Put) ?: Remove }
 
         override fun putInt(key: String, value: Int): SharedPreferences.Editor =
-            apply { entries[key] = Put(value.toEncodedByteArray().toBytes()) }
+            apply { actions[key] = Put(value.toEncodedByteArray().toBytes()) }
 
         override fun putLong(key: String, value: Long): SharedPreferences.Editor =
-            apply { entries[key] = Put(value.toEncodedByteArray().toBytes()) }
+            apply { actions[key] = Put(value.toEncodedByteArray().toBytes()) }
 
         override fun putFloat(key: String, value: Float): SharedPreferences.Editor =
-            apply { entries[key] = Put(value.toEncodedByteArray().toBytes()) }
+            apply { actions[key] = Put(value.toEncodedByteArray().toBytes()) }
 
         override fun putBoolean(key: String, value: Boolean): SharedPreferences.Editor =
-            apply { entries[key] = Put(value.toEncodedByteArray().toBytes()) }
+            apply { actions[key] = Put(value.toEncodedByteArray().toBytes()) }
 
         override fun remove(key: String): SharedPreferences.Editor =
-            apply { entries[key] = Remove }
+            apply { actions[key] = Remove }
 
-        /**
-         * Marks the editor to perform a full `clear()` before applying other mutations.
-         * This will notify listeners of all removed keys, followed by any modifications.
-         */
         override fun clear(): SharedPreferences.Editor =
             apply { cleared.set(true) }
 
-        override fun commit(): Boolean = delegate.commit(entries, cleared.get())
+        override fun commit(): Boolean =
+            engine.commitBatch(actions, cleared.get())
 
         override fun apply() {
-            delegate.apply(entries, cleared.get())
+            engine.applyBatch(actions, cleared.get())
         }
     }
 
-    private interface Delegate {
-        fun commit(entries: LinkedHashMap<String, Action>, cleared: Boolean): Boolean
-        fun apply(entries: LinkedHashMap<String, Action>, cleared: Boolean)
-    }
-
-    private sealed class Action {
+    internal sealed class Action {
         data class Put(val encodedValue: Bytes) : Action()
         object Remove : Action()
     }
@@ -425,31 +243,27 @@ public class SafeBox private constructor(
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
             instances[fileName]?.let { safeBox ->
-                stateListener?.let(safeBox.stateManager::setStateListener)
+                stateListener?.let(safeBox.engine::setStateListener)
                 return safeBox
             }
             return synchronized(instances) {
                 instances[fileName]?.let { safeBox ->
-                    stateListener?.let(safeBox.stateManager::setStateListener)
+                    stateListener?.let(safeBox.engine::setStateListener)
                     return safeBox
                 }
-                val aesGcmCipherProvider = AesGcmCipherProvider.create(
-                    alias = valueKeyStoreAlias,
-                    aad = fileName.toByteArray(),
-                )
-                val keyProvider = SecureRandomKeyProvider.create(
+                val castFailureStrategy = AtomicReference(WARN)
+                val byteDecoder = ByteDecoder(castFailureStrategy::get)
+                val engine = SafeBoxEngine.create(
                     context = context,
                     fileName = fileName,
                     keyAlias = keyAlias,
-                    keySize = ChaCha20CipherProvider.KEY_SIZE,
-                    algorithm = ChaCha20CipherProvider.ALGORITHM,
-                    cipherProvider = aesGcmCipherProvider,
+                    valueKeyStoreAlias = valueKeyStoreAlias,
+                    aad = fileName.toByteArray(),
+                    ioDispatcher = ioDispatcher,
+                    stateListener = stateListener,
+                    byteDecoder = byteDecoder,
                 )
-                val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
-                val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
-                val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
-                val blobStore = SafeBoxBlobStore.create(context, fileName)
-                SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
+                SafeBox(engine, castFailureStrategy)
                     .also { instances[fileName] = it }
             }
         }
@@ -466,10 +280,6 @@ public class SafeBox private constructor(
          * - The ChaCha20 secret is encrypted using AES-GCM via [SecureRandomKeyProvider].
          *
          * This method handles secure initialization and is recommended for most use cases.
-         *
-         * **Common pitfalls:**
-         * - Do NOT create multiple SafeBox instances with the same file name.
-         * - Avoid scoping SafeBox to short-lived components (e.g. ViewModel).
          *
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
@@ -528,17 +338,26 @@ public class SafeBox private constructor(
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
             instances[fileName]?.let { safeBox ->
-                stateListener?.let(safeBox.stateManager::setStateListener)
+                stateListener?.let(safeBox.engine::setStateListener)
                 return safeBox
             }
             return synchronized(instances) {
                 instances[fileName]?.let { safeBox ->
-                    stateListener?.let(safeBox.stateManager::setStateListener)
+                    stateListener?.let(safeBox.engine::setStateListener)
                     return safeBox
                 }
-                val stateManager = SafeBoxStateManager(fileName, stateListener, ioDispatcher)
-                val blobStore = SafeBoxBlobStore.create(context, fileName)
-                SafeBox(blobStore, keyCipherProvider, valueCipherProvider, stateManager)
+                val castFailureStrategy = AtomicReference(WARN)
+                val byteDecoder = ByteDecoder(castFailureStrategy::get)
+                val engine = SafeBoxEngine.create(
+                    context = context,
+                    fileName = fileName,
+                    keyCipherProvider = keyCipherProvider,
+                    valueCipherProvider = valueCipherProvider,
+                    ioDispatcher = ioDispatcher,
+                    stateListener = stateListener,
+                    byteDecoder = byteDecoder,
+                )
+                SafeBox(engine, castFailureStrategy)
                     .also { instances[fileName] = it }
             }
         }
