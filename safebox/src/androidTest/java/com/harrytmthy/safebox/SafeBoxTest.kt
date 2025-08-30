@@ -246,6 +246,18 @@ class SafeBoxTest {
     }
 
     @Test
+    fun getFloat_afterClear_withReusedEditor_shouldBeRetained() {
+        safeBox = createSafeBox()
+        val editor = safeBox.edit()
+        editor.clear().commit()
+
+        editor.putFloat("key1", 1.234f).commit()
+        editor.putBoolean("key2", true).commit()
+
+        assertEquals(1.234f, safeBox.getFloat("key1", 0f))
+    }
+
+    @Test
     fun commit_shouldWaitForApplyCompletion() {
         safeBox = createSafeBox()
         safeBox.edit().apply {

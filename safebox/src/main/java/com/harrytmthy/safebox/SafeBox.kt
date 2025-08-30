@@ -190,10 +190,10 @@ public class SafeBox private constructor(
             apply { cleared.set(true) }
 
         override fun commit(): Boolean =
-            engine.commitBatch(actions, cleared.get())
+            engine.commitBatch(actions, cleared.getAndSet(false))
 
         override fun apply() {
-            engine.applyBatch(actions, cleared.get())
+            engine.applyBatch(actions, cleared.getAndSet(false))
         }
     }
 
