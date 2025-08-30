@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0-beta01] - 2025-08-31
+
+### Fixed
+- **Persisted cleared flag:** Reusing an editor after `clear()` no longer keeps clearing on later commits. ([#86](https://github.com/harrytmthy/safebox/issues/86))
+
+### Changed
+- **Centralized runtime orchestration:** New internal `SafeBoxEngine` now owns in-memory entries, write sequencing, the initial-load barrier, and AEAD dead-entry purge scheduling. ([#84](https://github.com/harrytmthy/safebox/issues/84), [#82](https://github.com/harrytmthy/safebox/issues/82))
+
+### Removed
+- **SafeBoxStateManager:** Internal class removed. Its responsibilities moved into `SafeBoxEngine`. ([#84](https://github.com/harrytmthy/safebox/issues/84))
+
 ## [1.2.0-alpha02] - 2025-08-29
 
 ### Behavior Changes
