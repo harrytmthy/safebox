@@ -83,7 +83,7 @@ internal class SafeBoxEngine private constructor(
         this.stateListener = stateListener
     }
 
-    fun setCallback(callback: Callback) {
+    fun setCallback(callback: Callback?) {
         this.callback = callback
     }
 
@@ -114,9 +114,12 @@ internal class SafeBoxEngine private constructor(
     }
 
     fun commitBatch(actions: LinkedHashMap<String, Action>, cleared: Boolean): Boolean {
+        if (actions.isEmpty() && !cleared) {
+            return true
+        }
         val snapshot = LinkedHashMap(actions)
+        actions.clear() // Prevents stale mutations on reused editor instance
         synchronized(updateLock) {
-            actions.clear() // Prevents stale mutations on reused editor instance
             updateEntries(snapshot, cleared)
         }
         return launchWriteBlocking {
@@ -125,9 +128,12 @@ internal class SafeBoxEngine private constructor(
     }
 
     fun applyBatch(actions: LinkedHashMap<String, Action>, cleared: Boolean) {
+        if (actions.isEmpty() && !cleared) {
+            return
+        }
         val snapshot = LinkedHashMap(actions)
+        actions.clear() // Prevents stale mutations on reused editor instance
         synchronized(updateLock) {
-            actions.clear() // Prevents stale mutations on reused editor instance
             updateEntries(snapshot, cleared)
         }
         launchWriteAsync {
@@ -137,26 +143,27 @@ internal class SafeBoxEngine private constructor(
 
     private fun updateEntries(actions: LinkedHashMap<String, Action>, cleared: Boolean) {
         if (cleared) {
-            val keys = entries.keys.toHashSet()
-            entries.clear()
-            for (encryptedKey in keys) {
-                val key = keyCipherProvider.tryDecrypt(encryptedKey.value)
-                    ?.toString(Charsets.UTF_8)
-                    ?: continue
-                callback?.onEntryChanged(key)
+            if (callback == null) {
+                entries.clear()
+            } else {
+                val keys = entries.keys.toHashSet()
+                entries.clear()
+                for (encryptedKey in keys) {
+                    val key = keyCipherProvider.tryDecrypt(encryptedKey.value)
+                        ?.toString(Charsets.UTF_8)
+                        ?: continue
+                    callback?.onEntryChanged(key)
+                }
             }
         }
         for ((key, action) in actions) {
             when (action) {
                 is Put -> {
-                    val encryptedKey = key.toEncryptedKey()
-                    val encryptedValue = action.encodedValue.value
-                        .let(valueCipherProvider::encrypt)
-                    entries[encryptedKey] = encryptedValue
+                    val encryptedValue = action.encodedValue.value.let(valueCipherProvider::encrypt)
+                    entries[key.toEncryptedKey()] = encryptedValue
                 }
                 is Remove -> {
-                    val encryptedKey = key.toEncryptedKey()
-                    entries.remove(encryptedKey)
+                    entries.remove(key.toEncryptedKey())
                 }
             }
             callback?.onEntryChanged(key)

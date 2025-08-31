@@ -337,7 +337,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun apply_then_commit_whenRepeatedManyTimes_shouldReturnCorrectValues() {
+    fun apply_whenRepeatedManyTimes_shouldReturnCorrectValues() {
         safeBox = createSafeBox(ioDispatcher = Dispatchers.IO)
 
         repeat(50) {
