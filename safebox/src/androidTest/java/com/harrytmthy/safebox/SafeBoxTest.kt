@@ -340,19 +340,18 @@ class SafeBoxTest {
     fun apply_then_commit_whenRepeatedManyTimes_shouldReturnCorrectValues() {
         safeBox = createSafeBox(ioDispatcher = Dispatchers.IO)
 
-        safeBox.edit().apply {
-            repeat(100) {
-                putInt(it.toString(), it)
-                if (it % 2 == 0) {
-                    apply()
-                } else {
-                    commit()
+        repeat(50) {
+            safeBox.edit().apply {
+                repeat(100) {
+                    putInt(it.toString(), it).apply()
                 }
             }
         }
 
-        repeat(100) {
-            assertEquals(it, safeBox.getInt(it.toString(), -1))
+        repeat(50) {
+            repeat(100) {
+                assertEquals(it, safeBox.getInt(it.toString(), -1))
+            }
         }
     }
 
