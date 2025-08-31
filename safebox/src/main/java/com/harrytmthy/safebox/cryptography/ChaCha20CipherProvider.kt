@@ -51,8 +51,6 @@ internal class ChaCha20CipherProvider(
         }
     }
 
-    private val cipherLock = Any()
-
     override fun encrypt(plaintext: ByteArray): ByteArray =
         synchronized(cipherLock) {
             val iv = if (deterministic) {
@@ -90,5 +88,6 @@ internal class ChaCha20CipherProvider(
         internal const val TRANSFORMATION = "ChaCha20-Poly1305"
         private const val IV_SIZE = 12
         private const val MAC_SIZE_BITS = 128
+        private val cipherLock = Any()
     }
 }
