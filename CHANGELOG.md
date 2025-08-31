@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2025-09-01
+
+### Added
+- **Getter APIs:** `SafeBox.get(fileName)` and `SafeBox.getOrNull(fileName)` for singleton-style retrieval. ([#64](https://github.com/harrytmthy/safebox/issues/64))
+
+### Changed
+- **Namespace update:** Published under `io.github.harrytmthy`. ([#45](https://github.com/harrytmthy/safebox/issues/45))
+- **Single instance per filename:** `SafeBox.create(...)` is atomic and idempotent. Repeated calls return the same instance. ([#58](https://github.com/harrytmthy/safebox/issues/58))
+- **SharedPreferences parity for reads:** `getXxx()` now blocks until the initial load completes. ([#71](https://github.com/harrytmthy/safebox/issues/71))
+- **Centralized runtime orchestration:** New internal `SafeBoxEngine` owns in-memory entries, the initial-load barrier, write sequencing, and AEAD dead-entry purge scheduling. ([#84](https://github.com/harrytmthy/safebox/issues/84), [#82](https://github.com/harrytmthy/safebox/issues/82))
+- **Faster engine writes:** Shrinks critical sections and lowers lock contention during bursty apply or commit. ([#92](https://github.com/harrytmthy/safebox/issues/92))
+- **Docs refreshed:** README and KDocs updated with v1.2.0 benchmarks. ([#63](https://github.com/harrytmthy/safebox/issues/63), [#89](https://github.com/harrytmthy/safebox/issues/89))
+
+### Fixed
+- **AEADBadTagException under concurrency:** ChaCha20-Poly1305 guarded by a process-wide mutex. Removes MAC failures and dead entries during mixed read and write workloads. ([#90](https://github.com/harrytmthy/safebox/issues/90))
+- **Persisted clear flag:** Reusing an editor after `clear()` no longer keeps clearing on later commits. ([#86](https://github.com/harrytmthy/safebox/issues/86))
+- **Stability carry-overs:** Serialized cryptography and safe purge of unreadable values. ([#72](https://github.com/harrytmthy/safebox/issues/72))
+
+### Deprecated
+- **CipherPool and CipherPoolExecutor:** Removal planned in v1.3. ([#78](https://github.com/harrytmthy/safebox/issues/78))
+- **AAD-taking factory:** AAD is ignored in v1.2 and removal is planned in v1.3. ([#72](https://github.com/harrytmthy/safebox/issues/72))
+- **`setInitialLoadStrategy(...)`:** No-op in v1.2 and removal planned in v1.3. ([#68](https://github.com/harrytmthy/safebox/issues/68))
+
+### Removed
+- **SafeBoxStateManager:** Responsibilities moved into `SafeBoxEngine`. ([#84](https://github.com/harrytmthy/safebox/issues/84))
+- **SingletonCipherPoolProvider:** Stale internal helper removed. ([#78](https://github.com/harrytmthy/safebox/issues/78))
+
+### Internal
+- **CI:** Gradle caching improvements. ([#47](https://github.com/harrytmthy/safebox/issues/47))
+- **Rename:** `SafeBoxExecutor` to `CipherPoolExecutor`. ([#49](https://github.com/harrytmthy/safebox/issues/49))
+
 ## [1.2.0-rc01] - 2025-08-31
 
 ### Fixed
