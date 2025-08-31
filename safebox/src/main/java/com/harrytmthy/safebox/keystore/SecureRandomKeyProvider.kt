@@ -29,15 +29,18 @@ import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.SecretKey
 
 /**
- * A [KeyProvider] implementation that manages a securely generated symmetric key.
+ * A [KeyProvider] that manages a securely generated symmetric key (DEK).
  *
  * Behavior:
  * - The key is generated using [SecureRandomProvider] on first use.
- * - It is encrypted via the given [CipherProvider] and stored in noBackupFilesDir.
- * - The key is decrypted and cached on first access.
+ * - It is wrapped via the given [cipherProvider] and stored on disk.
+ * - On access, the wrapped key is unwrapped and returned as a [SafeSecretKey], which
+ *   keeps the material masked in off-heap memory.
+ * - The unwrapped key instance is cached to avoid repeated unwraps. Call [rotateKey]
+ *   to replace it or [destroyKey] to wipe it from memory.
  *
- * This class is suitable for non-Keystore-based algorithms like ChaCha20, where
- * secure persistence must be handled outside AndroidKeyStore.
+ * This class is suitable for non-Keystore algorithms (e.g. ChaCha20) where persistence
+ * must be handled outside AndroidKeyStore.
  */
 internal class SecureRandomKeyProvider private constructor(
     private val encryptedKeyFile: File,
@@ -67,8 +70,10 @@ internal class SecureRandomKeyProvider private constructor(
     }
 
     /**
-     * Retrieves or generates the symmetric key, decrypting from disk if necessary.
-     * The key is cached in memory for a short period before being cleared.
+     * Retrieves or generates the DEK.
+     *
+     * No long-lived raw heap array is kept. Temporary heap copies produced by JCE
+     * are cleared via [SafeSecretKey.releaseHeapCopy] right after cipher operations.
      */
     override fun getOrCreateKey(): SecretKey {
         decryptedKey.get()?.let { return it }
