@@ -69,13 +69,10 @@ public class SafeBox private constructor(
 
     private val listeners = CopyOnWriteArrayList<OnSharedPreferenceChangeListener>()
 
-    init {
-        val callback = object : SafeBoxEngine.Callback {
-            override fun onEntryChanged(key: String) {
-                listeners.forEach { it.onSharedPreferenceChanged(this@SafeBox, key) }
-            }
+    private val callback = object : SafeBoxEngine.Callback {
+        override fun onEntryChanged(key: String) {
+            listeners.forEach { it.onSharedPreferenceChanged(this@SafeBox, key) }
         }
-        engine.setCallback(callback)
     }
 
     /**
@@ -152,11 +149,18 @@ public class SafeBox private constructor(
     override fun edit(): SharedPreferences.Editor = Editor(engine)
 
     override fun registerOnSharedPreferenceChangeListener(l: OnSharedPreferenceChangeListener) {
+        val shouldSetCallback = listeners.isEmpty()
         listeners.add(l)
+        if (shouldSetCallback) {
+            engine.setCallback(callback)
+        }
     }
 
     override fun unregisterOnSharedPreferenceChangeListener(l: OnSharedPreferenceChangeListener) {
         listeners.remove(l)
+        if (listeners.isEmpty()) {
+            engine.setCallback(null)
+        }
     }
 
     private class Editor(private val engine: SafeBoxEngine) : SharedPreferences.Editor {
