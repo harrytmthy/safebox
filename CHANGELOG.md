@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0-rc01] - 2025-08-31
+
+### Fixed
+- **Prevent AEADBadTagException under concurrency:** ChaCha20-Poly1305 operations now use a **process-wide mutex** (instead of per-instance locking), eliminating MAC failures and dead entries during mixed read/write workloads. ([#90](https://github.com/harrytmthy/safebox/issues/90))
+
+### Performance
+- **Faster write paths:** Shrinks critical update sections and reduces lock contention on bursty `apply()`/`commit()` sequences, improving end-to-end write latency. ([#92](https://github.com/harrytmthy/safebox/issues/92))
+
+### Docs
+- **Benchmarks & KDoc refresh:** Updated v1.2.0 benchmark charts & tables in README, and updated KDocs. ([#89](https://github.com/harrytmthy/safebox/issues/89))
+
 ## [1.2.0-beta01] - 2025-08-31
 
 ### Fixed
