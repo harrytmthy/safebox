@@ -13,13 +13,13 @@ SafeBox can help you [migrate](docs/MIGRATION.md) easily using the same `SharedP
 
 ## Why SafeBox?
 
-| Feature             | SafeBox v1.1.0                    | EncryptedSharedPreferences                |
-|---------------------|-----------------------------------|-------------------------------------------|
-| Initialization Time | **0.38ms** (*100x faster*)        | 38.7ms                                    |
-| Storage Format      | Memory-mapped binary file         | XML-based per-entry                       |
-| Encryption Method   | ChaCha20-Poly1305 (keys & values) | AES-SIV for keys, AES-GCM for values      |
-| Key Security        | Android Keystore-backed AES-GCM   | Android Keystore MasterKey (*deprecated*) |
-| Customization       | Pluggable cipher providers        | Tightly coupled                           |
+| Feature                  | SafeBox v1.2.0                    | EncryptedSharedPreferences                |
+|--------------------------|-----------------------------------|-------------------------------------------|
+| Initialization Time      | **0.21ms** (*184.3× faster*)      | 38.7ms                                    |
+| Storage Format           | Memory-mapped binary file         | XML-based per-entry                       |
+| Encryption Method        | ChaCha20-Poly1305 (keys & values) | AES-SIV for keys, AES-GCM for values      |
+| Key Security             | Android Keystore-backed AES-GCM   | Android Keystore MasterKey (*deprecated*) |
+| Customization            | Pluggable cipher providers        | Tightly coupled                           |
 
 SafeBox uses **deterministic encryption** for reference keys (for fast lookup) and **non-deterministic encryption** for values (for strong security). Both powered by a single ChaCha20 key protected via AES-GCM and stored securely.
 
@@ -165,6 +165,39 @@ SafeBox is a drop-in replacement for `EncryptedSharedPreferences`.
 Average times measured over **100 samples** on an emulator:
 
 <details open>
+
+<summary>📊 v1.2.0 Benchmark</summary>
+
+![Get Performance](docs/charts/v1_2_get_performance_chart.png)
+
+![Put Performance](docs/charts/v1_2_put_performance_chart.png)
+
+![Put then Commit Performance](docs/charts/v1_2_put_and_commit_performance_chart.png)
+
+| Operation                   | SafeBox v1.2.0               | EncryptedSharedPreferences |
+|-----------------------------|------------------------------|----------------------------|
+| Initialization              | **0.21ms** (*184.3× faster*) | 38.7ms                     |
+| Get 1 entry                 | **0.01ms** (*50.0× faster*)  | 0.50ms                     |
+| Get 3 entries               | **0.04ms** (*31.8× faster*)  | 1.27ms                     |
+| Get 5 entries               | **0.07ms** (*32.1× faster*)  | 2.25ms                     |
+| Get 10 entries              | **0.15ms** (*27.1× faster*)  | 4.07ms                     |
+| Put 1 entry, then commit    | **0.22ms** (*5.95× faster*)  | 1.31ms                     |
+| Put 3 entries, then commit  | **0.52ms** (*4.15× faster*)  | 2.16ms                     |
+| Put 5 entries, then commit  | **0.98ms** (*3.39× faster*)  | 3.32ms                     |
+| Put 10 entries, then commit | **1.64ms** (*3.83× faster*)  | 6.28ms                     |
+
+Even on **multiple single commits**, SafeBox remains faster:
+
+| Operation                 | SafeBox v1.2.0               | EncryptedSharedPreferences |
+|---------------------------|------------------------------|----------------------------|
+| Commit 3 single entries   | **0.53ms** (*9.25× faster*)  | 4.90ms                     |
+| Commit 5 single entries   | **0.95ms** (*7.27× faster*)  | 6.91ms                     |
+| Commit 10 single entries  | **1.96ms** (*5.75× faster*)  | 11.27ms                    |
+| Commit 100 single entries | **17.41ms** (*4.10× faster*) | 71.34ms                    |
+
+</details>
+
+<details>
 
 <summary>📊 v1.1.0 Benchmark</summary>
 
