@@ -30,6 +30,7 @@ import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_KEY_ALIAS
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
 import com.harrytmthy.safebox.cryptography.AesGcmCipherProvider
 import com.harrytmthy.safebox.cryptography.ChaCha20CipherProvider
+import com.harrytmthy.safebox.engine.SafeBoxEngine
 import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import kotlinx.coroutines.CoroutineDispatcher
@@ -63,26 +64,13 @@ class SafeBoxTest {
 
     private val legacyAlias = "abc"
 
+    private val engines = HashMap<String, SafeBoxEngine>()
+
     private lateinit var safeBox: SafeBox
 
     @After
     fun tearDown() {
-        SafeBox.getOrNull(fileName)
-            ?.edit()
-            ?.clear()
-            ?.commit()
-
-        removeSafeBoxInstance()
-
-        KeyStore.getInstance("AndroidKeyStore").apply {
-            load(null)
-            deleteEntry(DEFAULT_VALUE_KEYSTORE_ALIAS)
-            deleteEntry(legacyAlias)
-        }
-
-        File(context.noBackupFilesDir, "$fileName.bin").delete()
-        File(context.noBackupFilesDir, "$fileName.key.bin").delete()
-        File(context.noBackupFilesDir, "$DEFAULT_KEY_ALIAS.bin").delete()
+        cleanupResources()
     }
 
     @Test
@@ -110,11 +98,11 @@ class SafeBoxTest {
     fun create_withDifferentFileName_shouldReturnDifferentInstances() {
         safeBox = createSafeBox()
 
-        val anotherSafeBox = createSafeBox(fileName = "test_safebox.bin")
+        val anotherSafeBox = createSafeBox(fileName = "test_safebox")
 
         assertTrue(safeBox !== anotherSafeBox)
         assertTrue(safeBox === createSafeBox())
-        File(context.noBackupFilesDir, "test_safebox.bin").delete()
+        File(context.noBackupFilesDir, "test_safebox").delete()
     }
 
     @Test
@@ -369,7 +357,29 @@ class SafeBoxTest {
     }
 
     private fun removeSafeBoxInstance(fileName: String = this.fileName) {
+        engines[fileName]?.let {
+            it.closeBlobStoreChannel()
+            engines.remove(fileName)
+        }
         SafeBox.instances.remove(fileName)
+    }
+
+    private fun cleanupResources() {
+        val iterator = engines.iterator()
+        while (iterator.hasNext()) {
+            val (fileName, engine) = iterator.next()
+            engine.closeBlobStoreChannel()
+            iterator.remove()
+            File(context.noBackupFilesDir, "$fileName.bin").delete()
+            File(context.noBackupFilesDir, "$fileName.key.bin").delete()
+            SafeBox.instances.remove(fileName)
+        }
+        KeyStore.getInstance("AndroidKeyStore").apply {
+            load(null)
+            deleteEntry(DEFAULT_VALUE_KEYSTORE_ALIAS)
+            deleteEntry(legacyAlias)
+        }
+        File(context.noBackupFilesDir, "$DEFAULT_KEY_ALIAS.bin").delete()
     }
 
     private fun createSafeBox(
@@ -378,13 +388,17 @@ class SafeBoxTest {
         valueKeyStoreAlias: String = DEFAULT_VALUE_KEYSTORE_ALIAS,
         ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(),
         stateListener: SafeBoxStateListener? = null,
-    ): SafeBox =
-        SafeBox.create(
-            context = context,
-            fileName = fileName,
-            keyAlias = keyAlias,
-            valueKeyStoreAlias = valueKeyStoreAlias,
-            ioDispatcher = ioDispatcher,
-            stateListener = stateListener,
+    ): SafeBox {
+        val engine = SafeBoxEngine.create(
+            context,
+            fileName,
+            keyAlias,
+            valueKeyStoreAlias,
+            fileName.toByteArray(),
+            ioDispatcher,
+            stateListener,
         )
+        engines[fileName] = engine
+        return SafeBox.createInternal(fileName, stateListener, engine)
+    }
 }
