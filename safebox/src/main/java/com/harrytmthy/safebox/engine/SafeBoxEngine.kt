@@ -36,6 +36,7 @@ import com.harrytmthy.safebox.state.SafeBoxState.WRITING
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.storage.SafeBoxBlobStore
+import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
@@ -54,10 +55,11 @@ internal class SafeBoxEngine private constructor(
     private val valueCipherProvider: CipherProvider,
     private val ioDispatcher: CoroutineDispatcher,
     private var stateListener: SafeBoxStateListener?,
-    private val byteDecoder: ByteDecoder,
 ) {
 
     private val entries: MutableMap<Bytes, ByteArray> = ConcurrentHashMap()
+
+    private val byteDecoder = ByteDecoder()
 
     private val updateLock = Any()
 
@@ -77,6 +79,10 @@ internal class SafeBoxEngine private constructor(
         launchWithStartingState {
             entries += blobStore.loadPersistedEntries()
         }
+    }
+
+    fun setCastFailureStrategy(fallbackStrategy: ValueFallbackStrategy) {
+        byteDecoder.setCastFailureStrategy(fallbackStrategy)
     }
 
     fun setStateListener(stateListener: SafeBoxStateListener?) {
@@ -314,7 +320,6 @@ internal class SafeBoxEngine private constructor(
             aad: ByteArray,
             ioDispatcher: CoroutineDispatcher,
             stateListener: SafeBoxStateListener?,
-            byteDecoder: ByteDecoder,
         ): SafeBoxEngine {
             val aesGcmCipherProvider = AesGcmCipherProvider.create(valueKeyStoreAlias, aad)
             val keyProvider = SecureRandomKeyProvider.create(
@@ -334,7 +339,6 @@ internal class SafeBoxEngine private constructor(
                 valueCipherProvider,
                 ioDispatcher,
                 stateListener,
-                byteDecoder,
             )
         }
 
@@ -345,7 +349,6 @@ internal class SafeBoxEngine private constructor(
             valueCipherProvider: CipherProvider,
             ioDispatcher: CoroutineDispatcher,
             stateListener: SafeBoxStateListener?,
-            byteDecoder: ByteDecoder,
         ): SafeBoxEngine {
             val blobStore = SafeBoxBlobStore.create(context, fileName)
             return SafeBoxEngine(
@@ -354,7 +357,6 @@ internal class SafeBoxEngine private constructor(
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
                 stateListener = stateListener,
-                byteDecoder = byteDecoder,
             )
         }
     }

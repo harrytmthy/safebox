@@ -21,8 +21,15 @@ import com.harrytmthy.safebox.constants.ValueTypeTag
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.ERROR
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
+import java.util.concurrent.atomic.AtomicReference
 
-internal class ByteDecoder(private val getCastFailureStrategy: () -> ValueFallbackStrategy) {
+internal class ByteDecoder {
+
+    private val castFailureStrategy = AtomicReference(WARN)
+
+    fun setCastFailureStrategy(fallbackStrategy: ValueFallbackStrategy) {
+        castFailureStrategy.set(fallbackStrategy)
+    }
 
     fun decodeAny(src: ByteArray): Any? =
         when (src.firstOrNull()) {
@@ -33,7 +40,7 @@ internal class ByteDecoder(private val getCastFailureStrategy: () -> ValueFallba
             ValueTypeTag.STRING -> decodeString(src)
             ValueTypeTag.STRING_SET -> decodeStringSet(src)
             else -> {
-                when (getCastFailureStrategy()) {
+                when (castFailureStrategy.get()) {
                     ERROR -> error("Unknown or missing type tag: ${src.firstOrNull()}")
                     WARN -> Log.w("SafeBox", "Unknown or missing type tag: ${src.firstOrNull()}")
                 }
@@ -108,7 +115,7 @@ internal class ByteDecoder(private val getCastFailureStrategy: () -> ValueFallba
     private fun ByteArray.checkType(expectedTypeTag: Byte): Boolean {
         val typeTag = this.firstOrNull()
         if (typeTag != expectedTypeTag) {
-            when (getCastFailureStrategy()) {
+            when (castFailureStrategy.get()) {
                 ERROR -> error("Expected tag $expectedTypeTag, but $typeTag was found.")
                 WARN -> Log.w("SafeBox", "Expected tag $expectedTypeTag, but $typeTag was found.")
             }

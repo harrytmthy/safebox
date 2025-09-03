@@ -25,7 +25,6 @@ import com.harrytmthy.safebox.SafeBox.Action.Remove
 import com.harrytmthy.safebox.SafeBox.Companion.create
 import com.harrytmthy.safebox.cryptography.ChaCha20CipherProvider
 import com.harrytmthy.safebox.cryptography.CipherProvider
-import com.harrytmthy.safebox.decoder.ByteDecoder
 import com.harrytmthy.safebox.engine.SafeBoxEngine
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.extensions.toEncodedByteArray
@@ -33,13 +32,11 @@ import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
-import com.harrytmthy.safebox.strategy.ValueFallbackStrategy.WARN
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * SafeBox provides secure, high-performance key-value storage designed as a drop-in replacement
@@ -59,13 +56,8 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * @param engine Internal worker that loads/saves encrypted data and manages runtime state.
  * It also notifies this instance when a key changes so registered listeners get updates.
- * @param castFailureStrategy Controls how SafeBox handles type mismatches on read
- * (e.g. log a warning and return the provided default).
  */
-public class SafeBox private constructor(
-    private val engine: SafeBoxEngine,
-    private val castFailureStrategy: AtomicReference<ValueFallbackStrategy>,
-) : SharedPreferences {
+public class SafeBox private constructor(private val engine: SafeBoxEngine) : SharedPreferences {
 
     private val listeners = CopyOnWriteArrayList<OnSharedPreferenceChangeListener>()
 
@@ -99,7 +91,7 @@ public class SafeBox private constructor(
      * @param fallbackStrategy The behavior to apply on decoding type mismatch
      */
     public fun setCastFailureStrategy(fallbackStrategy: ValueFallbackStrategy) {
-        castFailureStrategy.set(fallbackStrategy)
+        engine.setCastFailureStrategy(fallbackStrategy)
     }
 
     /**
@@ -255,8 +247,6 @@ public class SafeBox private constructor(
                     stateListener?.let(safeBox.engine::setStateListener)
                     return safeBox
                 }
-                val castFailureStrategy = AtomicReference(WARN)
-                val byteDecoder = ByteDecoder(castFailureStrategy::get)
                 val engine = SafeBoxEngine.create(
                     context = context,
                     fileName = fileName,
@@ -265,10 +255,8 @@ public class SafeBox private constructor(
                     aad = fileName.toByteArray(),
                     ioDispatcher = ioDispatcher,
                     stateListener = stateListener,
-                    byteDecoder = byteDecoder,
                 )
-                SafeBox(engine, castFailureStrategy)
-                    .also { instances[fileName] = it }
+                SafeBox(engine).also { instances[fileName] = it }
             }
         }
 
@@ -350,8 +338,6 @@ public class SafeBox private constructor(
                     stateListener?.let(safeBox.engine::setStateListener)
                     return safeBox
                 }
-                val castFailureStrategy = AtomicReference(WARN)
-                val byteDecoder = ByteDecoder(castFailureStrategy::get)
                 val engine = SafeBoxEngine.create(
                     context = context,
                     fileName = fileName,
@@ -359,10 +345,8 @@ public class SafeBox private constructor(
                     valueCipherProvider = valueCipherProvider,
                     ioDispatcher = ioDispatcher,
                     stateListener = stateListener,
-                    byteDecoder = byteDecoder,
                 )
-                SafeBox(engine, castFailureStrategy)
-                    .also { instances[fileName] = it }
+                SafeBox(engine).also { instances[fileName] = it }
             }
         }
 

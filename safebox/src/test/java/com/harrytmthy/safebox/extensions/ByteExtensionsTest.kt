@@ -18,15 +18,12 @@ package com.harrytmthy.safebox.extensions
 
 import com.harrytmthy.safebox.constants.ValueTypeTag
 import com.harrytmthy.safebox.decoder.ByteDecoder
-import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ByteExtensionsTest {
 
-    private val fallbackStrategy = ValueFallbackStrategy.WARN
-
-    private val byteDecoder = ByteDecoder(::fallbackStrategy)
+    private val byteDecoder = ByteDecoder()
 
     @Test
     fun `Int encode-decode should return original value`() {
