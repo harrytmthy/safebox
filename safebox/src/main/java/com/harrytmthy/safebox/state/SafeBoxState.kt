@@ -49,12 +49,4 @@ public enum class SafeBoxState {
      * Writes update the in-memory map immediately. Disk persistence follows the current batch.
      */
     WRITING,
-
-    /**
-     * **Deprecated:** SafeBox is always active and reusable.
-     *
-     * SafeBox has been closed and is no longer usable.
-     */
-    @Deprecated(message = "This state is no longer emitted. Will be removed in v1.3.")
-    CLOSED,
 }

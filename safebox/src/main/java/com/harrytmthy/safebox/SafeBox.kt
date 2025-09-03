@@ -68,19 +68,6 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
     }
 
     /**
-     * **Deprecated:** SafeBox reads now behave exactly like SharedPreferences, where `getXxx(...)`
-     * blocks the current thread until the initial load completes.
-     *
-     * Sets the fallback behavior when values are accessed before the initial load completes.
-     *
-     * @param fallbackStrategy The behavior to apply when access is premature
-     */
-    @Deprecated(message = "This method is now a no-op. Will be removed in v1.3.")
-    public fun setInitialLoadStrategy(fallbackStrategy: ValueFallbackStrategy) {
-        // no-op
-    }
-
-    /**
      * Sets the fallback behavior when a stored value cannot be cast to the expected type.
      *
      * For example, calling `getInt("some_key")` on a value originally written as a String
@@ -92,26 +79,6 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
      */
     public fun setCastFailureStrategy(fallbackStrategy: ValueFallbackStrategy) {
         engine.setCastFailureStrategy(fallbackStrategy)
-    }
-
-    /**
-     * **Deprecated:** SafeBox no longer requires instance closing.
-     *
-     * Immediately closes the underlying file channel and releases resources.
-     */
-    @Deprecated(message = "This method is now a no-op. Will be removed in v1.3.")
-    public fun close() {
-        // no-op
-    }
-
-    /**
-     * **Deprecated:** SafeBox no longer requires instance closing.
-     *
-     * Closes the underlying file channel only after all pending writes have completed.
-     */
-    @Deprecated(message = "This method is now a no-op. Will be removed in v1.3.")
-    public fun closeWhenIdle() {
-        // no-op
     }
 
     override fun getAll(): Map<String, Any?> =
@@ -220,8 +187,6 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
          *
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
-         * @param keyAlias The identifier for storing the key (used to locate its encrypted form)
-         * @param valueKeyStoreAlias The Android Keystore alias used for AES-GCM key generation
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
          * @param stateListener The listener to observe instance-bound state transitions
          *
@@ -233,8 +198,51 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
         public fun create(
             context: Context,
             fileName: String,
-            keyAlias: String = DEFAULT_KEY_ALIAS,
-            valueKeyStoreAlias: String = DEFAULT_VALUE_KEYSTORE_ALIAS,
+            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            stateListener: SafeBoxStateListener? = null,
+        ): SafeBox {
+            val engine = SafeBoxEngine.create(
+                context = context,
+                fileName = fileName,
+                keyAlias = DEFAULT_KEY_ALIAS,
+                valueKeyStoreAlias = DEFAULT_VALUE_KEYSTORE_ALIAS,
+                ioDispatcher = ioDispatcher,
+                stateListener = stateListener,
+            )
+            return createInternal(fileName, stateListener, engine)
+        }
+
+        /**
+         * **Deprecation:** SafeBox now manages Keystore aliases internally for safety and
+         * consistency. `keyAlias` and `valueKeyStoreAlias` are planned for removal in v1.4.
+         *
+         * Creates a [SafeBox] instance with secure defaults:
+         * - Keys are deterministically encrypted using [ChaCha20CipherProvider].
+         * - Values are encrypted with the same ChaCha20 key, using a randomized IV per encryption.
+         * - The ChaCha20 secret is encrypted with AES-GCM via [SecureRandomKeyProvider].
+         *
+         * This method is idempotent per [fileName]. Repeated calls return the existing instance.
+         * If [stateListener] is non-null, it replaces the current listener. All other parameters
+         * are ignored when the instance already exists.
+         *
+         * @param context The application context
+         * @param fileName The name of the backing file used for persistence
+         * @param keyAlias The identifier for storing the key (used to locate its encrypted form)
+         * @param valueKeyStoreAlias The Android Keystore alias used for AES-GCM key generation
+         * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
+         * @param stateListener The listener to observe instance-bound state transitions
+         *
+         * @return A fully configured [SafeBox] instance
+         */
+        @Deprecated("Aliases are ignored. Use the overload without aliases.")
+        @JvmOverloads
+        @JvmStatic
+        @Throws(IllegalStateException::class)
+        public fun create(
+            context: Context,
+            fileName: String,
+            keyAlias: String,
+            valueKeyStoreAlias: String,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
@@ -243,51 +251,11 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
                 fileName = fileName,
                 keyAlias = keyAlias,
                 valueKeyStoreAlias = valueKeyStoreAlias,
-                aad = fileName.toByteArray(),
                 ioDispatcher = ioDispatcher,
                 stateListener = stateListener,
             )
             return createInternal(fileName, stateListener, engine)
         }
-
-        /**
-         * **Deprecation:** SafeBox no longer supports custom AAD. Changing it can cause MAC check
-         * failures and dead entries. Consequently, `additionalAuthenticatedData` is ignored, and
-         * this overload will be removed in v1.3. `keyAlias` and `valueKeyStoreAlias` are planned
-         * for deprecation in v1.3.
-         *
-         * Creates a [SafeBox] instance with secure defaults:
-         * - Keys are deterministically encrypted using [ChaCha20CipherProvider].
-         * - Values are encrypted with the same ChaCha20 key, but with randomized IV per encryption.
-         * - The ChaCha20 secret is encrypted using AES-GCM via [SecureRandomKeyProvider].
-         *
-         * This method handles secure initialization and is recommended for most use cases.
-         *
-         * @param context The application context
-         * @param fileName The name of the backing file used for persistence
-         * @param keyAlias The identifier for storing the key (used to locate its encrypted form)
-         * @param valueKeyStoreAlias The Android Keystore alias used for AES-GCM key generation
-         * @param additionalAuthenticatedData Optional AAD bound to the AES-GCM (default: fileName)
-         * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
-         * @param stateListener The listener to observe instance-bound state transitions
-         *
-         * @return A fully configured [SafeBox] instance
-         * @throws IllegalStateException if the file is already registered.
-         */
-        @Deprecated("additionalAuthenticatedData is ignored. Use the overload without it.")
-        @JvmOverloads
-        @JvmStatic
-        @Throws(IllegalStateException::class)
-        public fun create(
-            context: Context,
-            fileName: String,
-            keyAlias: String = DEFAULT_KEY_ALIAS,
-            valueKeyStoreAlias: String = DEFAULT_VALUE_KEYSTORE_ALIAS,
-            additionalAuthenticatedData: ByteArray,
-            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-            stateListener: SafeBoxStateListener? = null,
-        ): SafeBox =
-            create(context, fileName, keyAlias, valueKeyStoreAlias, ioDispatcher, stateListener)
 
         /**
          * Creates a [SafeBox] instance using a custom [CipherProvider] implementation.
