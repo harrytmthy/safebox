@@ -152,6 +152,15 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
      */
     internal fun getFileName(): String = file.nameWithoutExtension
 
+    /**
+     * Closes the underlying file channel and releases associated resources.
+     */
+    internal suspend fun closeWhenIdle() {
+        writeMutex.withLock {
+            channel.close()
+        }
+    }
+
     private fun writeAtOffset(
         encryptedKey: Bytes,
         encryptedValue: ByteArray,

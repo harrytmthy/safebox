@@ -238,26 +238,16 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
-            instances[fileName]?.let { safeBox ->
-                stateListener?.let(safeBox.engine::setStateListener)
-                return safeBox
-            }
-            return synchronized(instances) {
-                instances[fileName]?.let { safeBox ->
-                    stateListener?.let(safeBox.engine::setStateListener)
-                    return safeBox
-                }
-                val engine = SafeBoxEngine.create(
-                    context = context,
-                    fileName = fileName,
-                    keyAlias = keyAlias,
-                    valueKeyStoreAlias = valueKeyStoreAlias,
-                    aad = fileName.toByteArray(),
-                    ioDispatcher = ioDispatcher,
-                    stateListener = stateListener,
-                )
-                SafeBox(engine).also { instances[fileName] = it }
-            }
+            val engine = SafeBoxEngine.create(
+                context = context,
+                fileName = fileName,
+                keyAlias = keyAlias,
+                valueKeyStoreAlias = valueKeyStoreAlias,
+                aad = fileName.toByteArray(),
+                ioDispatcher = ioDispatcher,
+                stateListener = stateListener,
+            )
+            return createInternal(fileName, stateListener, engine)
         }
 
         /**
@@ -329,6 +319,22 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
+            val engine = SafeBoxEngine.create(
+                context = context,
+                fileName = fileName,
+                keyCipherProvider = keyCipherProvider,
+                valueCipherProvider = valueCipherProvider,
+                ioDispatcher = ioDispatcher,
+                stateListener = stateListener,
+            )
+            return createInternal(fileName, stateListener, engine)
+        }
+
+        internal fun createInternal(
+            fileName: String,
+            stateListener: SafeBoxStateListener?,
+            engine: SafeBoxEngine,
+        ): SafeBox {
             instances[fileName]?.let { safeBox ->
                 stateListener?.let(safeBox.engine::setStateListener)
                 return safeBox
@@ -338,14 +344,6 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
                     stateListener?.let(safeBox.engine::setStateListener)
                     return safeBox
                 }
-                val engine = SafeBoxEngine.create(
-                    context = context,
-                    fileName = fileName,
-                    keyCipherProvider = keyCipherProvider,
-                    valueCipherProvider = valueCipherProvider,
-                    ioDispatcher = ioDispatcher,
-                    stateListener = stateListener,
-                )
                 SafeBox(engine).also { instances[fileName] = it }
             }
         }

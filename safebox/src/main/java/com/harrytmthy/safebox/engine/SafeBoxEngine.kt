@@ -267,6 +267,14 @@ internal class SafeBoxEngine private constructor(
         }
     }
 
+    internal fun closeBlobStoreChannel() {
+        runBlocking {
+            initialReadCompleted.await()
+            writeBarrier.get().await()
+            blobStore.closeWhenIdle()
+        }
+    }
+
     private fun updateState(newState: SafeBoxState) {
         stateListener?.onStateChanged(newState)
         SafeBoxGlobalStateObserver.updateState(blobStore.getFileName(), newState)
