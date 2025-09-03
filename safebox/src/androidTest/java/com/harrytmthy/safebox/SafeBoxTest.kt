@@ -394,7 +394,6 @@ class SafeBoxTest {
             fileName,
             keyAlias,
             valueKeyStoreAlias,
-            fileName.toByteArray(),
             ioDispatcher,
             stateListener,
         )
