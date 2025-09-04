@@ -18,6 +18,7 @@ package com.harrytmthy.safebox
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties.BLOCK_MODE_GCM
 import android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE
@@ -268,7 +269,7 @@ class SafeBoxTest {
         val changedValues = ArrayList<Any?>()
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             changedKeys.add(key)
-            changedValues += safeBox.all[key]
+            key?.let { changedValues += safeBox.all[it] }
         }
         safeBox.registerOnSharedPreferenceChangeListener(listener)
 
@@ -283,24 +284,108 @@ class SafeBoxTest {
             .putStringSet("key3", setOf("SafeBox"))
             .commit()
 
-        safeBox.unregisterOnSharedPreferenceChangeListener(listener)
-
-        val expectedKeyChanges = listOf(
-            "key0", // put Float
-            "key0", // cleared Float
-            "key1", // put + removed Long
-            "key2", // put Boolean
-            "key3", // put StringSet
-        )
+        val expectedKeyChanges = buildList {
+            add("key0")
+            val appOnRPlus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            val appTargetsRPlus = context.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.R
+            if (appOnRPlus && appTargetsRPlus) {
+                add(null)
+            }
+            add("key3")
+            add("key2")
+        }
         val expectedValueChanges = listOf(
             0.2f, // put Float
-            null, // cleared Float
-            null, // put + removed Long
-            true, // put Boolean
             setOf("SafeBox"), // put StringSet
+            true, // put Boolean
         )
         assertContentEquals(expectedKeyChanges, changedKeys)
         assertContentEquals(expectedValueChanges, changedValues)
+        safeBox.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
+    @Test
+    fun listener_whenPuttingThenRemovingKey_shouldNotNotify() {
+        safeBox = createSafeBox()
+        val actualKeys = ArrayList<String?>()
+        val actualValues = ArrayList<Int?>()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            actualKeys += key
+            key?.let { actualValues += safeBox.getInt(it, -1) }
+        }
+        safeBox.registerOnSharedPreferenceChangeListener(listener)
+
+        safeBox.edit()
+            .putInt("key", 1)
+            .remove("key")
+            .commit()
+
+        assertEquals(emptyList(), actualKeys)
+        assertEquals(emptyList(), actualValues)
+        safeBox.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
+    @Test
+    fun listener_whenNothingRemoved_shouldNotNotify() {
+        safeBox = createSafeBox()
+        val actualKeys = ArrayList<String?>()
+        val actualValues = ArrayList<Int?>()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            actualKeys += key
+            key?.let { actualValues += safeBox.getInt(it, -1) }
+        }
+        safeBox.registerOnSharedPreferenceChangeListener(listener)
+
+        safeBox.edit().remove("key").commit()
+
+        assertEquals(emptyList(), actualKeys)
+        assertEquals(emptyList(), actualValues)
+        safeBox.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
+    @Test
+    fun listener_withExistingKey_whenPuttingSameValues_shouldNotNotify() {
+        safeBox = createSafeBox()
+        safeBox.edit().putInt("key", 1).commit()
+        val actualKeys = ArrayList<String?>()
+        val actualValues = ArrayList<Int?>()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            actualKeys += key
+            key?.let { actualValues += safeBox.getInt(it, -1) }
+        }
+        safeBox.registerOnSharedPreferenceChangeListener(listener)
+
+        safeBox.edit().putInt("key", 1).commit()
+
+        assertEquals(emptyList(), actualKeys)
+        assertEquals(emptyList(), actualValues)
+        safeBox.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
+    @Test
+    fun listener_withExistingKey_whenCleared_shouldNotNotify() {
+        safeBox = createSafeBox()
+        safeBox.edit().putInt("key", 1).commit()
+        val actualKeys = ArrayList<String?>()
+        val actualValues = ArrayList<Int?>()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            actualKeys += key
+            key?.let { safeBox.getInt(it, -1) }
+        }
+        safeBox.registerOnSharedPreferenceChangeListener(listener)
+
+        safeBox.edit().clear().commit()
+
+        val appOnRPlus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        val appTargetsRPlus = context.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.R
+        val expectedKeys: List<String?> = if (appOnRPlus && appTargetsRPlus) {
+            listOf(null)
+        } else {
+            emptyList()
+        }
+        assertEquals(expectedKeys, actualKeys)
+        assertEquals(emptyList(), actualValues)
+        safeBox.unregisterOnSharedPreferenceChangeListener(listener)
     }
 
     @Test

@@ -62,7 +62,7 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
     private val listeners = CopyOnWriteArrayList<OnSharedPreferenceChangeListener>()
 
     private val callback = object : SafeBoxEngine.Callback {
-        override fun onEntryChanged(key: String) {
+        override fun onEntryChanged(key: String?) {
             listeners.forEach { it.onSharedPreferenceChanged(this@SafeBox, key) }
         }
     }

@@ -17,6 +17,7 @@
 package com.harrytmthy.safebox.engine
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.harrytmthy.safebox.SafeBox.Action
 import com.harrytmthy.safebox.SafeBox.Action.Put
@@ -55,6 +56,7 @@ internal class SafeBoxEngine private constructor(
     private val valueCipherProvider: CipherProvider,
     private val ioDispatcher: CoroutineDispatcher,
     private var stateListener: SafeBoxStateListener?,
+    private val notifyNullOnClear: Boolean,
 ) {
 
     private val entries: MutableMap<Bytes, ByteArray> = ConcurrentHashMap()
@@ -149,30 +151,32 @@ internal class SafeBoxEngine private constructor(
 
     private fun updateEntries(actions: LinkedHashMap<String, Action>, cleared: Boolean) {
         if (cleared) {
-            if (callback == null) {
-                entries.clear()
-            } else {
-                val keys = entries.keys.toHashSet()
-                entries.clear()
-                for (encryptedKey in keys) {
-                    val key = keyCipherProvider.tryDecrypt(encryptedKey.value)
-                        ?.toString(Charsets.UTF_8)
-                        ?: continue
-                    callback?.onEntryChanged(key)
-                }
+            entries.clear()
+            if (notifyNullOnClear) {
+                callback?.onEntryChanged(null)
             }
         }
+        val modifiedKeys = callback?.let { ArrayList<String>(actions.size) }
         for ((key, action) in actions) {
             when (action) {
                 is Put -> {
-                    val encryptedValue = action.encodedValue.value.let(valueCipherProvider::encrypt)
-                    entries[key.toEncryptedKey()] = encryptedValue
+                    val encryptedKey = key.toEncryptedKey()
+                    val oldValue = entries[encryptedKey]?.let { valueCipherProvider.tryDecrypt(it) }
+                    val newValue = action.encodedValue.value
+                    if (!newValue.contentEquals(oldValue)) {
+                        entries[encryptedKey] = newValue.let(valueCipherProvider::encrypt)
+                        modifiedKeys?.add(key)
+                    }
                 }
                 is Remove -> {
-                    entries.remove(key.toEncryptedKey())
+                    if (entries.remove(key.toEncryptedKey()) != null) {
+                        modifiedKeys?.add(key)
+                    }
                 }
             }
-            callback?.onEntryChanged(key)
+        }
+        for (index in (modifiedKeys?.size ?: return) - 1 downTo 0) {
+            callback?.onEntryChanged(modifiedKeys[index])
         }
     }
 
@@ -315,7 +319,7 @@ internal class SafeBoxEngine private constructor(
         keyCipherProvider.encrypt(this.toByteArray()).toBytes()
 
     internal interface Callback {
-        fun onEntryChanged(key: String)
+        fun onEntryChanged(key: String?)
     }
 
     internal companion object {
@@ -361,12 +365,15 @@ internal class SafeBoxEngine private constructor(
             stateListener: SafeBoxStateListener?,
         ): SafeBoxEngine {
             val blobStore = SafeBoxBlobStore.create(context, fileName)
+            val appOnRPlus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            val appTargetsRPlus = context.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.R
             return SafeBoxEngine(
                 blobStore = blobStore,
                 keyCipherProvider = keyCipherProvider,
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
                 stateListener = stateListener,
+                notifyNullOnClear = appOnRPlus && appTargetsRPlus,
             )
         }
     }
