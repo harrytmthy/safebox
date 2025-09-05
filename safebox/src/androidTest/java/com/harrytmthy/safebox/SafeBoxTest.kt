@@ -196,7 +196,7 @@ class SafeBoxTest {
         safeBox.edit().putLong("key", 1L).commit()
         removeSafeBoxInstance()
 
-        safeBox = createSafeBox(keyAlias = "abc")
+        safeBox = createSafeBox(keyAlias = legacyAlias)
 
         assertEquals(1L, safeBox.getLong("key", -1L))
     }
@@ -207,7 +207,7 @@ class SafeBoxTest {
         safeBox.edit().putInt("key", 1).commit()
         removeSafeBoxInstance()
 
-        safeBox = createSafeBox(valueKeyStoreAlias = "abc")
+        safeBox = createSafeBox(valueKeyStoreAlias = legacyAlias)
 
         assertEquals(1, safeBox.getInt("key", -1))
     }
@@ -428,6 +428,18 @@ class SafeBoxTest {
         }
     }
 
+    @Test
+    fun getBoolean_withMultipleInstances_shouldReturnCorrectValue() {
+        safeBox = createSafeBox()
+        val prefs = createSafeBox(legacyAlias)
+
+        safeBox.edit().putBoolean("key", true).commit()
+        prefs.edit().putBoolean("key", true).commit()
+
+        assertEquals(true, safeBox.getBoolean("key", false))
+        assertEquals(true, prefs.getBoolean("key", false))
+    }
+
     private fun ensureLegacyAliasInKeyStore() {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         if (keyStore.containsAlias(legacyAlias)) return
@@ -464,6 +476,9 @@ class SafeBoxTest {
             deleteEntry(DEFAULT_VALUE_KEYSTORE_ALIAS)
             deleteEntry(legacyAlias)
         }
+        File(context.noBackupFilesDir, "$fileName.bin").delete()
+        File(context.noBackupFilesDir, "$fileName.key.bin").delete()
+        File(context.noBackupFilesDir, "$legacyAlias.key.bin").delete()
         File(context.noBackupFilesDir, "$DEFAULT_KEY_ALIAS.bin").delete()
     }
 
