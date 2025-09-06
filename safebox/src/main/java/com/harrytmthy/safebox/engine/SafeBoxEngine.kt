@@ -327,19 +327,13 @@ internal class SafeBoxEngine private constructor(
         fun create(
             context: Context,
             fileName: String,
-            keyAlias: String,
-            valueKeyStoreAlias: String,
             ioDispatcher: CoroutineDispatcher,
             stateListener: SafeBoxStateListener?,
         ): SafeBoxEngine {
-            val aesGcmCipherProvider = AesGcmCipherProvider.create(
-                alias = valueKeyStoreAlias,
-                aad = fileName.toByteArray(),
-            )
+            val aesGcmCipherProvider = AesGcmCipherProvider.create(aad = fileName.toByteArray())
             val keyProvider = SecureRandomKeyProvider.create(
                 context = context,
                 fileName = fileName,
-                keyAlias = keyAlias,
                 keySize = ChaCha20CipherProvider.KEY_SIZE,
                 algorithm = ChaCha20CipherProvider.ALGORITHM,
                 cipherProvider = aesGcmCipherProvider,

@@ -204,53 +204,6 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
             val engine = SafeBoxEngine.create(
                 context = context,
                 fileName = fileName,
-                keyAlias = DEFAULT_KEY_ALIAS,
-                valueKeyStoreAlias = DEFAULT_VALUE_KEYSTORE_ALIAS,
-                ioDispatcher = ioDispatcher,
-                stateListener = stateListener,
-            )
-            return createInternal(fileName, stateListener, engine)
-        }
-
-        /**
-         * **Deprecation:** SafeBox now manages Keystore aliases internally for safety and
-         * consistency. `keyAlias` and `valueKeyStoreAlias` are planned for removal in v1.4.
-         *
-         * Creates a [SafeBox] instance with secure defaults:
-         * - Keys are deterministically encrypted using [ChaCha20CipherProvider].
-         * - Values are encrypted with the same ChaCha20 key, using a randomized IV per encryption.
-         * - The ChaCha20 secret is encrypted with AES-GCM via [SecureRandomKeyProvider].
-         *
-         * This method is idempotent per [fileName]. Repeated calls return the existing instance.
-         * If [stateListener] is non-null, it replaces the current listener. All other parameters
-         * are ignored when the instance already exists.
-         *
-         * @param context The application context
-         * @param fileName The name of the backing file used for persistence
-         * @param keyAlias The identifier for storing the key (used to locate its encrypted form)
-         * @param valueKeyStoreAlias The Android Keystore alias used for AES-GCM key generation
-         * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
-         * @param stateListener The listener to observe instance-bound state transitions
-         *
-         * @return A fully configured [SafeBox] instance
-         */
-        @Deprecated("Aliases are ignored. Use the overload without aliases.")
-        @JvmOverloads
-        @JvmStatic
-        @Throws(IllegalStateException::class)
-        public fun create(
-            context: Context,
-            fileName: String,
-            keyAlias: String,
-            valueKeyStoreAlias: String,
-            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-            stateListener: SafeBoxStateListener? = null,
-        ): SafeBox {
-            val engine = SafeBoxEngine.create(
-                context = context,
-                fileName = fileName,
-                keyAlias = keyAlias,
-                valueKeyStoreAlias = valueKeyStoreAlias,
                 ioDispatcher = ioDispatcher,
                 stateListener = stateListener,
             )

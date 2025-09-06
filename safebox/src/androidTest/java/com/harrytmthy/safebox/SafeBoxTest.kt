@@ -50,7 +50,6 @@ import javax.crypto.KeyGenerator
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
@@ -162,14 +161,10 @@ class SafeBoxTest {
 
     @Test
     fun getInt_afterKeyRotation_shouldReturnCorrectValue() {
-        val aesGcmCipherProvider = AesGcmCipherProvider.create(
-            alias = DEFAULT_VALUE_KEYSTORE_ALIAS,
-            aad = fileName.toByteArray(),
-        )
+        val aesGcmCipherProvider = AesGcmCipherProvider.create(aad = fileName.toByteArray())
         val keyProvider = SecureRandomKeyProvider.create(
             context = context,
             fileName = fileName,
-            keyAlias = DEFAULT_KEY_ALIAS,
             keySize = ChaCha20CipherProvider.KEY_SIZE,
             algorithm = ChaCha20CipherProvider.ALGORITHM,
             cipherProvider = aesGcmCipherProvider,
@@ -191,47 +186,16 @@ class SafeBoxTest {
     }
 
     @Test
-    fun getLong_afterKeyAliasChanged_shouldReturnCorrectValue() {
-        safeBox = createSafeBox()
-        safeBox.edit().putLong("key", 1L).commit()
-        removeSafeBoxInstance()
-
-        safeBox = createSafeBox(keyAlias = legacyAlias)
-
-        assertEquals(1L, safeBox.getLong("key", -1L))
-    }
-
-    @Test
-    fun getInt_afterValueKeyStoreAliasChanged_shouldReturnCorrectValue() {
-        safeBox = createSafeBox()
-        safeBox.edit().putInt("key", 1).commit()
-        removeSafeBoxInstance()
-
-        safeBox = createSafeBox(valueKeyStoreAlias = legacyAlias)
-
-        assertEquals(1, safeBox.getInt("key", -1))
-    }
-
-    @Test
     fun getInt_withLegacyAliasExist_shouldReturnCorrectValue() {
         ensureLegacyAliasInKeyStore()
-        safeBox = createSafeBox(valueKeyStoreAlias = legacyAlias)
+        safeBox = createSafeBox()
         safeBox.edit().putInt("mk", 42).commit()
         removeSafeBoxInstance()
 
-        safeBox = createSafeBox(valueKeyStoreAlias = legacyAlias)
-        val valueAfterMigration = safeBox.getInt("mk", -1)
-        removeSafeBoxInstance()
+        safeBox = createSafeBox()
+        val result = safeBox.getInt("mk", -1)
 
-        val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        assertEquals(42, valueAfterMigration)
-        assertTrue(keystore.containsAlias(DEFAULT_VALUE_KEYSTORE_ALIAS))
-        assertFalse(keystore.containsAlias(legacyAlias))
-
-        safeBox = createSafeBox(valueKeyStoreAlias = legacyAlias)
-        val valueThirdRun = safeBox.getInt("mk", -1)
-
-        assertEquals(42, valueThirdRun)
+        assertEquals(42, result)
     }
 
     @Test
@@ -484,16 +448,12 @@ class SafeBoxTest {
 
     private fun createSafeBox(
         fileName: String = this.fileName,
-        keyAlias: String = DEFAULT_KEY_ALIAS,
-        valueKeyStoreAlias: String = DEFAULT_VALUE_KEYSTORE_ALIAS,
         ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(),
         stateListener: SafeBoxStateListener? = null,
     ): SafeBox {
         val engine = SafeBoxEngine.create(
             context,
             fileName,
-            keyAlias,
-            valueKeyStoreAlias,
             ioDispatcher,
             stateListener,
         )

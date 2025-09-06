@@ -35,10 +35,9 @@ class ChaCha20CipherProviderTest {
     private val keyProvider = SecureRandomKeyProvider.create(
         context = context,
         fileName = "test-key",
-        keyAlias = "test-key",
         keySize = 32,
         algorithm = "ChaCha20",
-        cipherProvider = AesGcmCipherProvider.create("test-gcm-alias", "test".toByteArray()),
+        cipherProvider = AesGcmCipherProvider.create("test".toByteArray()),
     )
 
     @After
