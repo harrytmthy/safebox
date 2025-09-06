@@ -24,6 +24,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_KEY_ALIAS
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
 import com.harrytmthy.safebox.engine.SafeBoxEngine
+import com.harrytmthy.safebox.factory.SafeBoxCryptoFactory
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -381,9 +382,15 @@ class SafeBoxTest {
         ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(),
         stateListener: SafeBoxStateListener? = null,
     ): SafeBox {
+        val (keyCipherProvider, valueCipherProvider) = SafeBoxCryptoFactory.createChaCha20Providers(
+            context = context,
+            fileName = fileName,
+        )
         val engine = SafeBoxEngine.create(
             context,
             fileName,
+            keyCipherProvider,
+            valueCipherProvider,
             ioDispatcher,
             stateListener,
         )

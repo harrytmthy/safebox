@@ -23,12 +23,11 @@ import androidx.annotation.VisibleForTesting
 import com.harrytmthy.safebox.SafeBox.Action.Put
 import com.harrytmthy.safebox.SafeBox.Action.Remove
 import com.harrytmthy.safebox.SafeBox.Companion.create
-import com.harrytmthy.safebox.cryptography.ChaCha20CipherProvider
 import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.engine.SafeBoxEngine
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.extensions.toEncodedByteArray
-import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
+import com.harrytmthy.safebox.factory.SafeBoxCryptoFactory.createChaCha20Providers
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
@@ -177,9 +176,9 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
 
         /**
          * Creates a [SafeBox] instance with secure defaults:
-         * - Keys are deterministically encrypted using [ChaCha20CipherProvider].
+         * - Keys are deterministically encrypted using `ChaCha20CipherProvider`.
          * - Values are encrypted with the same ChaCha20 key, using a randomized IV per encryption.
-         * - The ChaCha20 secret is encrypted with AES-GCM via [SecureRandomKeyProvider].
+         * - The ChaCha20 secret is encrypted with AES-GCM via `SecureRandomKeyProvider`.
          *
          * This method is idempotent per [fileName]. Repeated calls return the existing instance.
          * If [stateListener] is non-null, it replaces the current listener. All other parameters
@@ -201,9 +200,15 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
             stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
+            val (keyCipherProvider, valueCipherProvider) = createChaCha20Providers(
+                context = context,
+                fileName = fileName,
+            )
             val engine = SafeBoxEngine.create(
                 context = context,
                 fileName = fileName,
+                keyCipherProvider = keyCipherProvider,
+                valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
                 stateListener = stateListener,
             )

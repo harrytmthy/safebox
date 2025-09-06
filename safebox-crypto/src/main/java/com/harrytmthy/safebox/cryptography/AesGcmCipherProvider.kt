@@ -21,7 +21,6 @@ import android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE
 import android.security.keystore.KeyProperties.KEY_ALGORITHM_AES
 import android.security.keystore.KeyProperties.PURPOSE_DECRYPT
 import android.security.keystore.KeyProperties.PURPOSE_ENCRYPT
-import com.harrytmthy.safebox.extensions.requireAes
 import com.harrytmthy.safebox.keystore.AndroidKeyStoreKeyProvider
 import com.harrytmthy.safebox.keystore.KeyProvider
 import javax.crypto.Cipher
@@ -44,7 +43,7 @@ internal class AesGcmCipherProvider private constructor(
 
     override fun encrypt(plaintext: ByteArray): ByteArray {
         val key = keyProvider.getOrCreateKey()
-        requireAes(key)
+        check(key.algorithm == KEY_ALGORITHM_AES) { "Only AES keys are supported" }
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)
         aad?.let(cipher::updateAAD)
@@ -55,7 +54,7 @@ internal class AesGcmCipherProvider private constructor(
 
     override fun decrypt(ciphertext: ByteArray): ByteArray {
         val key = keyProvider.getOrCreateKey()
-        requireAes(key)
+        check(key.algorithm == KEY_ALGORITHM_AES) { "Only AES keys are supported" }
         val iv = ciphertext.copyOfRange(0, IV_SIZE)
         val actualData = ciphertext.copyOfRange(IV_SIZE, ciphertext.size)
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)

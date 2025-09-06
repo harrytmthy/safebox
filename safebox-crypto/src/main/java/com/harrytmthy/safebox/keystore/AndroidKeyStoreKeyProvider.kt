@@ -19,7 +19,6 @@ package com.harrytmthy.safebox.keystore
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties.PURPOSE_ENCRYPT
 import android.security.keystore.KeyProperties.PURPOSE_SIGN
-import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
 import java.security.KeyStore
 import java.security.KeyStore.SecretKeyEntry
 import javax.crypto.KeyGenerator
@@ -75,5 +74,6 @@ internal class AndroidKeyStoreKeyProvider(
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        const val DEFAULT_VALUE_KEYSTORE_ALIAS = "SafeBoxValue"
     }
 }
