@@ -19,20 +19,11 @@ package com.harrytmthy.safebox
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties.BLOCK_MODE_GCM
-import android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE
-import android.security.keystore.KeyProperties.KEY_ALGORITHM_AES
-import android.security.keystore.KeyProperties.PURPOSE_DECRYPT
-import android.security.keystore.KeyProperties.PURPOSE_ENCRYPT
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_KEY_ALIAS
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
-import com.harrytmthy.safebox.cryptography.AesGcmCipherProvider
-import com.harrytmthy.safebox.cryptography.ChaCha20CipherProvider
 import com.harrytmthy.safebox.engine.SafeBoxEngine
-import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +37,6 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.security.KeyStore
 import java.util.concurrent.atomic.AtomicReference
-import javax.crypto.KeyGenerator
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -157,45 +147,6 @@ class SafeBoxTest {
 
         assertEquals(null, safeBox.getString("firstKey", null))
         assertEquals(0, safeBox.getInt("secondKey", 0))
-    }
-
-    @Test
-    fun getInt_afterKeyRotation_shouldReturnCorrectValue() {
-        val aesGcmCipherProvider = AesGcmCipherProvider.create(aad = fileName.toByteArray())
-        val keyProvider = SecureRandomKeyProvider.create(
-            context = context,
-            fileName = fileName,
-            keySize = ChaCha20CipherProvider.KEY_SIZE,
-            algorithm = ChaCha20CipherProvider.ALGORITHM,
-            cipherProvider = aesGcmCipherProvider,
-        )
-        val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
-        val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
-        safeBox = SafeBox.create(
-            context,
-            fileName,
-            keyCipherProvider,
-            valueCipherProvider,
-            UnconfinedTestDispatcher(),
-        )
-        safeBox.edit().putInt("key", 1).commit()
-
-        keyProvider.rotateKey()
-
-        assertEquals(-1, safeBox.getInt("key", -1))
-    }
-
-    @Test
-    fun getInt_withLegacyAliasExist_shouldReturnCorrectValue() {
-        ensureLegacyAliasInKeyStore()
-        safeBox = createSafeBox()
-        safeBox.edit().putInt("mk", 42).commit()
-        removeSafeBoxInstance()
-
-        safeBox = createSafeBox()
-        val result = safeBox.getInt("mk", -1)
-
-        assertEquals(42, result)
     }
 
     @Test
@@ -402,27 +353,6 @@ class SafeBoxTest {
 
         assertEquals(true, safeBox.getBoolean("key", false))
         assertEquals(true, prefs.getBoolean("key", false))
-    }
-
-    private fun ensureLegacyAliasInKeyStore() {
-        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        if (keyStore.containsAlias(legacyAlias)) return
-        val keyGenerator = KeyGenerator.getInstance(KEY_ALGORITHM_AES, "AndroidKeyStore")
-        keyGenerator.init(
-            KeyGenParameterSpec.Builder(legacyAlias, PURPOSE_ENCRYPT or PURPOSE_DECRYPT)
-                .setBlockModes(BLOCK_MODE_GCM)
-                .setEncryptionPaddings(ENCRYPTION_PADDING_NONE)
-                .build(),
-        )
-        keyGenerator.generateKey()
-    }
-
-    private fun removeSafeBoxInstance(fileName: String = this.fileName) {
-        engines[fileName]?.let {
-            it.closeBlobStoreChannel()
-            engines.remove(fileName)
-        }
-        SafeBox.instances.remove(fileName)
     }
 
     private fun cleanupResources() {

@@ -45,12 +45,10 @@ import javax.crypto.SecretKey
  * }
  * ```
  *
- * @param alias The key alias under which the key is stored in AndroidKeyStore.
  * @param purposes The cryptographic purposes (e.g. [PURPOSE_ENCRYPT], [PURPOSE_SIGN]).
  * @param parameterSpecBuilder Lambda that configures the [KeyGenParameterSpec.Builder].
  */
 internal class AndroidKeyStoreKeyProvider(
-    private val alias: String,
     algorithm: String,
     purposes: Int,
     parameterSpecBuilder: KeyGenParameterSpec.Builder.() -> Unit,
@@ -73,32 +71,7 @@ internal class AndroidKeyStoreKeyProvider(
         }
     }
 
-    private val aliasKey by lazy {
-        if (keyStore.containsAlias(alias)) {
-            val entry = keyStore.getEntry(alias, null) as SecretKeyEntry
-            entry.secretKey
-        } else {
-            defaultKey
-        }
-    }
-
-    override fun getOrCreateKey(): SecretKey =
-        if (keyStore.containsAlias(DEFAULT_VALUE_KEYSTORE_ALIAS)) {
-            defaultKey
-        } else {
-            aliasKey
-        }
-
-    override fun rotateKey() {
-        defaultKey // Triggers lazy-init
-        keyStore.deleteEntry(alias)
-    }
-
-    override fun shouldRotateKey(): Boolean {
-        val defaultExists = keyStore.containsAlias(DEFAULT_VALUE_KEYSTORE_ALIAS)
-        val legacyExists = alias != DEFAULT_VALUE_KEYSTORE_ALIAS && keyStore.containsAlias(alias)
-        return !defaultExists || legacyExists
-    }
+    override fun getOrCreateKey(): SecretKey = defaultKey
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
