@@ -26,7 +26,7 @@ package com.harrytmthy.safebox.cryptography
  * This interface is intentionally minimal to allow interoperability with various
  * cipher modes and key management strategies.
  */
-public interface CipherProvider {
+interface CipherProvider {
 
     /**
      * Encrypts the given [plaintext] using the provided secret key.

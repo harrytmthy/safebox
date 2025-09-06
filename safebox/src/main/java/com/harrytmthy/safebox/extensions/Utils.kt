@@ -16,13 +16,7 @@
 
 package com.harrytmthy.safebox.extensions
 
-import android.security.keystore.KeyProperties.KEY_ALGORITHM_AES
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
-import javax.crypto.SecretKey
 
 internal val safeBoxScope = CoroutineScope(SupervisorJob())
-
-internal fun requireAes(key: SecretKey) {
-    require(key.algorithm == KEY_ALGORITHM_AES) { "Only AES keys are supported" }
-}

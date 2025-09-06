@@ -23,15 +23,16 @@ plugins {
 }
 
 group = "io.github.harrytmthy"
-version = "1.2.0"
+version = "1.3.0-alpha01"
 
 android {
-    namespace = "com.harrytmthy.safebox"
+    namespace = "com.harrytmthy.safebox.cryptography"
     compileSdk = 36
 
     defaultConfig {
         minSdk = 23
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles("proguard-consumer-rules.pro")
     }
 
     buildTypes {
@@ -51,18 +52,12 @@ android {
 }
 
 dependencies {
-    implementation(projects.safeboxCrypto)
     implementation(libs.androidx.annotation)
-    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.bouncy.castle.provider)
 
-    testImplementation(libs.kotlin.test)
-    testImplementation(libs.kotlinx.coroutines.test)
-
-    androidTestImplementation(libs.androidx.security.crypto)
     androidTestImplementation(libs.androidx.test.ext)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.kotlin.test)
-    androidTestImplementation(libs.kotlinx.coroutines.test)
 }
 
 dokka {
@@ -89,8 +84,8 @@ mavenPublishing {
     signAllPublications()
 
     pom {
-        name.set("SafeBox")
-        description.set("A fast and secure replacement for SharedPreferences using memory-mapped file and ChaCha20 encryption.")
+        name.set("SafeBox Crypto")
+        description.set("Cryptography core used by SafeBox, including ChaCha20-Poly1305 and AES-GCM keystore wrapping.")
         url.set("https://github.com/harrytmthy/safebox")
 
         licenses {
@@ -107,7 +102,6 @@ mavenPublishing {
                 email.set("harrytmthy@gmail.com")
             }
         }
-
         scm {
             connection.set("scm:git:git://github.com/harrytmthy/safebox.git")
             developerConnection.set("scm:git:ssh://github.com:harrytmthy/safebox.git")

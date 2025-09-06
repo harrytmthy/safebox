@@ -22,13 +22,10 @@ import android.util.Log
 import com.harrytmthy.safebox.SafeBox.Action
 import com.harrytmthy.safebox.SafeBox.Action.Put
 import com.harrytmthy.safebox.SafeBox.Action.Remove
-import com.harrytmthy.safebox.cryptography.AesGcmCipherProvider
-import com.harrytmthy.safebox.cryptography.ChaCha20CipherProvider
 import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.decoder.ByteDecoder
 import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
-import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
 import com.harrytmthy.safebox.state.SafeBoxGlobalStateObserver
 import com.harrytmthy.safebox.state.SafeBoxState
 import com.harrytmthy.safebox.state.SafeBoxState.IDLE
@@ -323,32 +320,6 @@ internal class SafeBoxEngine private constructor(
     }
 
     internal companion object {
-
-        fun create(
-            context: Context,
-            fileName: String,
-            ioDispatcher: CoroutineDispatcher,
-            stateListener: SafeBoxStateListener?,
-        ): SafeBoxEngine {
-            val aesGcmCipherProvider = AesGcmCipherProvider.create(aad = fileName.toByteArray())
-            val keyProvider = SecureRandomKeyProvider.create(
-                context = context,
-                fileName = fileName,
-                keySize = ChaCha20CipherProvider.KEY_SIZE,
-                algorithm = ChaCha20CipherProvider.ALGORITHM,
-                cipherProvider = aesGcmCipherProvider,
-            )
-            val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
-            val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
-            return create(
-                context,
-                fileName,
-                keyCipherProvider,
-                valueCipherProvider,
-                ioDispatcher,
-                stateListener,
-            )
-        }
 
         fun create(
             context: Context,
