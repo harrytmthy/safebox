@@ -37,11 +37,10 @@ class SecureRandomKeyProviderTest {
 
     @Before
     fun setUp() {
-        val cipher = AesGcmCipherProvider.create("test-gcm-alias", "test".toByteArray())
+        val cipher = AesGcmCipherProvider.create("test".toByteArray())
         provider = SecureRandomKeyProvider.create(
             context = context,
             fileName = "test_key",
-            keyAlias = "test_key",
             keySize = 32,
             algorithm = "ChaCha20",
             cipherProvider = cipher,
@@ -70,10 +69,9 @@ class SecureRandomKeyProviderTest {
         val newInstance = SecureRandomKeyProvider.create(
             context = context,
             fileName = "test_key",
-            keyAlias = "test_key",
             keySize = 32,
             algorithm = "ChaCha20",
-            cipherProvider = AesGcmCipherProvider.create("test-gcm-alias", "test".toByteArray()),
+            cipherProvider = AesGcmCipherProvider.create("test".toByteArray()),
         )
         val reloaded = newInstance.getOrCreateKey().encoded
         assertContentEquals(original, reloaded)

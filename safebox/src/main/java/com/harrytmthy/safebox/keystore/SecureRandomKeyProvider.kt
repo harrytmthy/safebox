@@ -140,21 +140,16 @@ internal class SecureRandomKeyProvider private constructor(
         internal fun create(
             context: Context,
             fileName: String,
-            keyAlias: String,
             keySize: Int,
             algorithm: String,
             cipherProvider: CipherProvider,
         ): SecureRandomKeyProvider {
-            val file = getEncryptedKeyFile(context, fileName, keyAlias)
+            val file = getEncryptedKeyFile(context, fileName)
             return SecureRandomKeyProvider(file, keySize, algorithm, cipherProvider)
         }
 
-        private fun getEncryptedKeyFile(
-            context: Context,
-            fileName: String,
-            keyAlias: String,
-        ): File {
-            val oldDestination = File(context.noBackupFilesDir, "$keyAlias.bin")
+        private fun getEncryptedKeyFile(context: Context, fileName: String): File {
+            val oldDestination = File(context.noBackupFilesDir, "SafeBoxKey.bin")
             val newDestination = File(context.noBackupFilesDir, "$fileName.key.bin")
             if (newDestination.exists() && newDestination.length() > 0L) {
                 return newDestination

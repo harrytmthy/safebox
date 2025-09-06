@@ -29,7 +29,7 @@ class AesGcmCipherProviderTest {
     @Test
     fun encryptAndDecrypt_withGCM_shouldReturnOriginalPlaintext() {
         val aad = "AndroidAAD".toByteArray()
-        val provider = AesGcmCipherProvider.create("test-gcm-alias", aad)
+        val provider = AesGcmCipherProvider.create(aad)
         val plaintext = "This is GCM from AndroidKeyStore".toByteArray()
 
         val encrypted = provider.encrypt(plaintext)
@@ -41,7 +41,7 @@ class AesGcmCipherProviderTest {
     @Test
     fun decrypt_withTamperedCipherText_shouldThrowAEADBadTagException() {
         val aad = "TamperAAD".toByteArray()
-        val provider = AesGcmCipherProvider.create("tamper-alias", aad)
+        val provider = AesGcmCipherProvider.create(aad)
         val plaintext = "Don't tamper me".toByteArray()
         val encrypted = provider.encrypt(plaintext)
 
