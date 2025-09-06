@@ -36,8 +36,6 @@ import javax.crypto.SecretKey
  * - It is wrapped via the given [cipherProvider] and stored on disk.
  * - On access, the wrapped key is unwrapped and returned as a [SafeSecretKey], which
  *   keeps the material masked in off-heap memory.
- * - The unwrapped key instance is cached to avoid repeated unwraps. Call [rotateKey]
- *   to replace it or [destroyKey] to wipe it from memory.
  *
  * This class is suitable for non-Keystore algorithms (e.g. ChaCha20) where persistence
  * must be handled outside AndroidKeyStore.
@@ -54,20 +52,6 @@ internal class SecureRandomKeyProvider private constructor(
     private val decryptedKey = AtomicReference<SecretKey>()
 
     private val lock = Any()
-
-    init {
-        if (cipherProvider.shouldRotateKey() && encryptedKeyBytes.isNotEmpty()) {
-            try {
-                val key = cipherProvider.decrypt(encryptedKeyBytes)
-                cipherProvider.rotateKey()
-                val encryptedKey = cipherProvider.encrypt(key)
-                replaceFileAtomically(encryptedKey)
-                encryptedKeyBytes = encryptedKey
-            } catch (e: Exception) {
-                Log.e("SafeBox", "Failed to rewrap DEK.", e)
-            }
-        }
-    }
 
     /**
      * Retrieves or generates the DEK.
@@ -90,16 +74,6 @@ internal class SecureRandomKeyProvider private constructor(
             decryptedKey.set(secretKey)
             secretKey
         }
-    }
-
-    override fun rotateKey() {
-        val newKey = createNewKey().toSecretKey()
-        decryptedKey.set(newKey)
-    }
-
-    override fun destroyKey() {
-        decryptedKey.get()?.destroy()
-        decryptedKey.set(null)
     }
 
     private fun createNewKey(): ByteArray {

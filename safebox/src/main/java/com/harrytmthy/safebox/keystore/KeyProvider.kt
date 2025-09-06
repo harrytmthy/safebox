@@ -34,22 +34,4 @@ internal interface KeyProvider {
      * @return A non-null [SecretKey] instance.
      */
     fun getOrCreateKey(): SecretKey
-
-    /**
-     * Triggers key rotation by replacing the existing key with a new one.
-     */
-    fun rotateKey() = Unit
-
-    /**
-     * Decides whether or not key rotation must be done.
-     *
-     * @return `true` if key rotation must be done. `false` otherwise.
-     */
-    fun shouldRotateKey(): Boolean = false
-
-    /**
-     * Destroys any in-memory key material held by the implementation.
-     * This is typically used during shutdown to ensure sensitive key data is wiped from memory.
-     */
-    fun destroyKey() = Unit
 }

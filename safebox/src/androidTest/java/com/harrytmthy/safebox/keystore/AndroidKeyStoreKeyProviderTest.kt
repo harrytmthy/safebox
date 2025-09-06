@@ -36,7 +36,6 @@ class AndroidKeyStoreKeyProviderTest {
     @Test
     fun getOrCreateKey_withAes_shouldReturnValidAesKey() {
         val keyProvider = AndroidKeyStoreKeyProvider(
-            alias = "TestAlias",
             algorithm = KEY_ALGORITHM_AES,
             purposes = PURPOSE_ENCRYPT or PURPOSE_DECRYPT,
             parameterSpecBuilder = {
@@ -53,7 +52,6 @@ class AndroidKeyStoreKeyProviderTest {
     @Test
     fun getOrCreateKey_withAes_shouldReturnTheSameKeyAcrossInvocations() {
         val keyProvider = AndroidKeyStoreKeyProvider(
-            alias = "TestAlias",
             algorithm = KEY_ALGORITHM_AES,
             purposes = PURPOSE_ENCRYPT or PURPOSE_DECRYPT,
             parameterSpecBuilder = {
@@ -71,7 +69,6 @@ class AndroidKeyStoreKeyProviderTest {
     @Test
     fun getOrCreateKey_withHmac_shouldReturnValidAesKey() {
         val keyProvider = AndroidKeyStoreKeyProvider(
-            alias = "TestAlias",
             algorithm = KEY_ALGORITHM_HMAC_SHA256,
             purposes = PURPOSE_SIGN or PURPOSE_VERIFY,
             parameterSpecBuilder = { setDigests(DIGEST_SHA256) },

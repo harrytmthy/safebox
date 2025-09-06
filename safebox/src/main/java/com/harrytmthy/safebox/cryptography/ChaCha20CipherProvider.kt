@@ -78,10 +78,6 @@ internal class ChaCha20CipherProvider(
             plaintext
         }
 
-    override fun destroyKey() {
-        keyProvider.destroyKey()
-    }
-
     internal companion object {
         internal const val ALGORITHM = "ChaCha20"
         internal const val KEY_SIZE = 32

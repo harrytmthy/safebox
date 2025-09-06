@@ -21,7 +21,6 @@ import android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE
 import android.security.keystore.KeyProperties.KEY_ALGORITHM_AES
 import android.security.keystore.KeyProperties.PURPOSE_DECRYPT
 import android.security.keystore.KeyProperties.PURPOSE_ENCRYPT
-import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
 import com.harrytmthy.safebox.extensions.requireAes
 import com.harrytmthy.safebox.keystore.AndroidKeyStoreKeyProvider
 import com.harrytmthy.safebox.keystore.KeyProvider
@@ -66,12 +65,6 @@ internal class AesGcmCipherProvider private constructor(
         return cipher.doFinal(actualData)
     }
 
-    override fun rotateKey() {
-        keyProvider.rotateKey()
-    }
-
-    override fun shouldRotateKey(): Boolean = keyProvider.shouldRotateKey()
-
     internal companion object {
 
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
@@ -82,7 +75,6 @@ internal class AesGcmCipherProvider private constructor(
 
         internal fun create(aad: ByteArray?): CipherProvider {
             val provider = AndroidKeyStoreKeyProvider(
-                alias = DEFAULT_VALUE_KEYSTORE_ALIAS,
                 algorithm = KEY_ALGORITHM_AES,
                 purposes = PURPOSE_ENCRYPT or PURPOSE_DECRYPT,
                 parameterSpecBuilder = {
