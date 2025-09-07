@@ -42,7 +42,7 @@ class ChaCha20CipherProviderTest {
 
     @After
     fun tearDown() {
-        File(context.noBackupFilesDir, "test-key.bin").delete()
+        File(context.noBackupFilesDir, "test-key.key.bin").delete()
     }
 
     @Test

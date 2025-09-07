@@ -16,75 +16,27 @@
 
 package com.harrytmthy.safebox.cryptography
 
-import android.annotation.SuppressLint
-import android.security.keystore.KeyProperties.DIGEST_SHA256
 import com.harrytmthy.safebox.keystore.KeyProvider
-import com.harrytmthy.safebox.keystore.SafeSecretKey
-import org.bouncycastle.jcajce.spec.AEADParameterSpec
-import org.bouncycastle.jce.provider.BouncyCastleProvider
-import java.security.GeneralSecurityException
-import java.security.MessageDigest
-import java.security.Security
-import javax.crypto.Cipher
 
 /**
- * ChaCha20-Poly1305 cipher provider using a 256-bit symmetric key. IV is randomly generated
- * per encryption and prepended to the ciphertext.
+ * ChaCha20-Poly1305 [CipherProvider] backed by a [KeyProvider].
  *
- * Android includes an outdated version of BouncyCastle which only provides old algorithms,
- * and deprecates it. However, the newer versions contain modern algorithms (e.g. ChaCha20)
- * that is safe. Thus, suppressing the deprecation is necessary.
+ * This is a thin adapter that:
+ *  1) Obtains a DEK from [keyProvider], then
+ *  2) Delegates crypto operations to an internal [ChaCha20Cipher].
+ *
+ *  **Output framing:** IV (12 bytes) || ciphertext || tag.
  */
-@SuppressLint("DeprecatedProvider")
 internal class ChaCha20CipherProvider(
     private val keyProvider: KeyProvider,
-    private val deterministic: Boolean,
+    deterministic: Boolean,
 ) : CipherProvider {
 
-    private val cipherLock = Any()
-
-    private val cipher by lazy {
-        try {
-            Cipher.getInstance(TRANSFORMATION, BouncyCastleProvider.PROVIDER_NAME)
-        } catch (_: GeneralSecurityException) {
-            Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
-            Security.addProvider(BouncyCastleProvider())
-            Cipher.getInstance(TRANSFORMATION, BouncyCastleProvider.PROVIDER_NAME)
-        }
-    }
+    val chaCha20CipherProvider = ChaCha20Cipher(deterministic)
 
     override fun encrypt(plaintext: ByteArray): ByteArray =
-        synchronized(cipherLock) {
-            val iv = if (deterministic) {
-                MessageDigest.getInstance(DIGEST_SHA256).digest(plaintext).copyOf(IV_SIZE)
-            } else {
-                SecureRandomProvider.generate(IV_SIZE)
-            }
-            val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
-            val key = keyProvider.getOrCreateKey()
-            cipher.init(Cipher.ENCRYPT_MODE, key, paramSpec)
-            val encrypted = cipher.doFinal(plaintext)
-            (key as? SafeSecretKey)?.releaseHeapCopy()
-            iv + encrypted
-        }
+        chaCha20CipherProvider.encrypt(plaintext, keyProvider.getOrCreateKey())
 
     override fun decrypt(ciphertext: ByteArray): ByteArray =
-        synchronized(cipherLock) {
-            val iv = ciphertext.copyOfRange(0, IV_SIZE)
-            val actual = ciphertext.copyOfRange(IV_SIZE, ciphertext.size)
-            val paramSpec = AEADParameterSpec(iv, MAC_SIZE_BITS)
-            val key = keyProvider.getOrCreateKey()
-            cipher.init(Cipher.DECRYPT_MODE, key, paramSpec)
-            val plaintext = cipher.doFinal(actual)
-            (key as? SafeSecretKey)?.releaseHeapCopy()
-            plaintext
-        }
-
-    internal companion object {
-        internal const val ALGORITHM = "ChaCha20"
-        internal const val KEY_SIZE = 32
-        internal const val TRANSFORMATION = "ChaCha20-Poly1305"
-        private const val IV_SIZE = 12
-        private const val MAC_SIZE_BITS = 128
-    }
+        chaCha20CipherProvider.decrypt(ciphertext, keyProvider.getOrCreateKey())
 }
