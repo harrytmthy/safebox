@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0-alpha01] - 2025-09-08
+
+### Added
+- **Crypto-only module:** New `:safebox-crypto` published as a standalone artifact. ([#110](https://github.com/harrytmthy/safebox/issues/110))
+- **SafeBoxCrypto helper:** Simple string-in, string-out ChaCha20-Poly1305 helper with URL-safe Base64. ([#121](https://github.com/harrytmthy/safebox/issues/121))
+
+### Changed
+- **Public API cleanup:** Removed alias-based params from public APIs. Creation now manages aliases internally. ([#111](https://github.com/harrytmthy/safebox/issues/111))
+
+### Performance
+- **Smaller dependency footprint:** Switched to `bcprov-jdk15on` and replaced blanket keeps with minimal rules. Minified apps are ≈9.5× smaller than before for SafeBox impact. ([#115](https://github.com/harrytmthy/safebox/issues/115))
+- **Lower contention:** Isolated ChaCha providers so key and value ciphers do not block each other. ([#117](https://github.com/harrytmthy/safebox/issues/117))
+
+### Fixed
+- **R8 errors:** Removed LDAP/X.509 pulls and missing-class warnings while keeping ChaCha20-Poly1305 intact. ([#115](https://github.com/harrytmthy/safebox/issues/115))
+- **Single DEK per file:** Ensure both ciphers for a given file resolve the same DEK with per-file locking and lazy load. ([#119](https://github.com/harrytmthy/safebox/issues/119))
+- **Listener parity:** Notifications aligned with `SharedPreferences` semantics. ([#102](https://github.com/harrytmthy/safebox/issues/102))
+
+### CI
+- **Faster builds:** Remove duplicate Gradle caching and scope concurrency per workflow. ([#108](https://github.com/harrytmthy/safebox/issues/108))
+
+### Breaking changes
+- **Alias-based creation removed:** If you previously used a custom `valueKeyStoreAlias`, reads may fail on upgrade. Migrate data to the default alias before adopting this version. ([#103](https://github.com/harrytmthy/safebox/issues/103), [#111](https://github.com/harrytmthy/safebox/issues/111))
+
 ## [1.2.0] - 2025-09-01
 
 ### Added
