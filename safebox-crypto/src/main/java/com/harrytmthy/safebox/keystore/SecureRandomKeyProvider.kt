@@ -23,9 +23,8 @@ import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.cryptography.SecureRandomProvider
 import java.io.File
 import java.io.IOException
-import java.security.GeneralSecurityException
 import java.security.MessageDigest
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.SecretKey
 
 /**
@@ -45,13 +44,20 @@ internal class SecureRandomKeyProvider private constructor(
     private val keySize: Int,
     private val algorithm: String,
     private val cipherProvider: CipherProvider,
+    private val fileLock: Any,
 ) : KeyProvider {
 
-    private var encryptedKeyBytes: ByteArray = encryptedKeyFile.readBytes()
-
-    private val decryptedKey = AtomicReference<SecretKey>()
-
-    private val lock = Any()
+    private val decryptedKey: SecretKey by lazy {
+        synchronized(fileLock) {
+            if (encryptedKeyFile.length() == 0L) {
+                val (newKey, encryptedNewKey) = createNewKey()
+                newKey.toSecretKey(encryptedNewKey)
+            } else {
+                val encryptedKey = encryptedKeyFile.readBytes()
+                cipherProvider.decrypt(encryptedKey).toSecretKey(encryptedKey)
+            }
+        }
+    }
 
     /**
      * Retrieves or generates the DEK.
@@ -59,29 +65,13 @@ internal class SecureRandomKeyProvider private constructor(
      * No long-lived raw heap array is kept. Temporary heap copies produced by JCE
      * are cleared via [SafeSecretKey.releaseHeapCopy] right after cipher operations.
      */
-    override fun getOrCreateKey(): SecretKey {
-        decryptedKey.get()?.let { return it }
-        return synchronized(lock) {
-            decryptedKey.get()?.let { return it } // fast path after lock acquisition
-            val key = try {
-                encryptedKeyBytes.takeIf { it.isNotEmpty() }
-                    ?.let(cipherProvider::decrypt)
-            } catch (e: GeneralSecurityException) {
-                Log.e("SafeBox", e.message, e)
-                null
-            } ?: createNewKey()
-            val secretKey = key.toSecretKey()
-            decryptedKey.set(secretKey)
-            secretKey
-        }
-    }
+    override fun getOrCreateKey(): SecretKey = decryptedKey
 
-    private fun createNewKey(): ByteArray {
+    private fun createNewKey(): Pair<ByteArray, ByteArray> {
         val generatedKey = SecureRandomProvider.generate(keySize)
         val encryptedKey = cipherProvider.encrypt(generatedKey)
         replaceFileAtomically(encryptedKey)
-        encryptedKeyBytes = encryptedKey
-        return generatedKey
+        return generatedKey to encryptedKey
     }
 
     private fun replaceFileAtomically(encryptedKey: ByteArray) {
@@ -104,12 +94,14 @@ internal class SecureRandomKeyProvider private constructor(
         }
     }
 
-    private fun ByteArray.toSecretKey(): SecretKey {
-        val mask = MessageDigest.getInstance(DIGEST_SHA256).digest(encryptedKeyBytes)
+    private fun ByteArray.toSecretKey(encryptedKey: ByteArray): SecretKey {
+        val mask = MessageDigest.getInstance(DIGEST_SHA256).digest(encryptedKey)
         return SafeSecretKey(this, mask, algorithm)
     }
 
     internal companion object {
+
+        private val fileLocks = ConcurrentHashMap<String, Any>()
 
         internal fun create(
             context: Context,
@@ -119,7 +111,13 @@ internal class SecureRandomKeyProvider private constructor(
             cipherProvider: CipherProvider,
         ): SecureRandomKeyProvider {
             val file = getEncryptedKeyFile(context, fileName)
-            return SecureRandomKeyProvider(file, keySize, algorithm, cipherProvider)
+            return SecureRandomKeyProvider(
+                encryptedKeyFile = file,
+                keySize = keySize,
+                algorithm = algorithm,
+                cipherProvider = cipherProvider,
+                fileLock = fileLocks.getOrPut(fileName, defaultValue = { Any() }),
+            )
         }
 
         private fun getEncryptedKeyFile(context: Context, fileName: String): File {

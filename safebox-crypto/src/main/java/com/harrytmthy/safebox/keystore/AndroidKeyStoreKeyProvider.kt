@@ -35,7 +35,7 @@ import javax.crypto.SecretKey
  * ## Usage Example
  * ```
  * val aesKeyProvider = AndroidKeyStoreKeyProvider(
- *     alias = "aes-key",
+ *     algorithm = "AES",
  *     purposes = PURPOSE_ENCRYPT or PURPOSE_DECRYPT
  * ) {
  *     setBlockModes("GCM")

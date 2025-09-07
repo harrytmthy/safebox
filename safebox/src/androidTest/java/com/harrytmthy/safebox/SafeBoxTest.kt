@@ -163,6 +163,24 @@ class SafeBoxTest {
     }
 
     @Test
+    fun getInt_shouldReturnPersistedValue() {
+        safeBox = createSafeBox()
+        var prefs = createSafeBox(legacyAlias)
+        safeBox.edit().putInt("key", 1).commit()
+        prefs.edit().putInt("key", 2).apply()
+        engines[fileName]?.closeBlobStoreChannel()
+        engines[legacyAlias]?.closeBlobStoreChannel()
+        SafeBox.instances.remove(fileName)
+        SafeBox.instances.remove(legacyAlias)
+
+        safeBox = createSafeBox()
+        prefs = createSafeBox(legacyAlias)
+
+        assertEquals(1, safeBox.getInt("key", -1))
+        assertEquals(2, prefs.getInt("key", -1))
+    }
+
+    @Test
     fun commit_shouldWaitForApplyCompletion() {
         safeBox = createSafeBox()
         safeBox.edit().apply {
