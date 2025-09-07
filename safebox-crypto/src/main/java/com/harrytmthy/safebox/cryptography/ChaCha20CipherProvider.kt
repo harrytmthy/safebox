@@ -41,6 +41,8 @@ internal class ChaCha20CipherProvider(
     private val deterministic: Boolean,
 ) : CipherProvider {
 
+    private val cipherLock = Any()
+
     private val cipher by lazy {
         try {
             Cipher.getInstance(TRANSFORMATION, BouncyCastleProvider.PROVIDER_NAME)
@@ -84,6 +86,5 @@ internal class ChaCha20CipherProvider(
         internal const val TRANSFORMATION = "ChaCha20-Poly1305"
         private const val IV_SIZE = 12
         private const val MAC_SIZE_BITS = 128
-        private val cipherLock = Any()
     }
 }

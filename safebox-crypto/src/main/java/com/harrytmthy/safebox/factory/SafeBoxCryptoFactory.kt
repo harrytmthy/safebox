@@ -50,15 +50,22 @@ object SafeBoxCryptoFactory {
         fileName: String,
     ): Pair<CipherProvider, CipherProvider> {
         val aesGcmCipherProvider = AesGcmCipherProvider.create(aad = fileName.toByteArray())
-        val keyProvider = SecureRandomKeyProvider.create(
+        val keyCipherKeyProvider = SecureRandomKeyProvider.create(
             context = context,
             fileName = fileName,
             keySize = ChaCha20CipherProvider.KEY_SIZE,
             algorithm = ChaCha20CipherProvider.ALGORITHM,
             cipherProvider = aesGcmCipherProvider,
         )
-        val keyCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = true)
-        val valueCipherProvider = ChaCha20CipherProvider(keyProvider, deterministic = false)
-        return keyCipherProvider to valueCipherProvider
+        val valueCipherKeyProvider = SecureRandomKeyProvider.create(
+            context = context,
+            fileName = fileName,
+            keySize = ChaCha20CipherProvider.KEY_SIZE,
+            algorithm = ChaCha20CipherProvider.ALGORITHM,
+            cipherProvider = aesGcmCipherProvider,
+        )
+        val keyCipher = ChaCha20CipherProvider(keyCipherKeyProvider, deterministic = true)
+        val valueCipher = ChaCha20CipherProvider(valueCipherKeyProvider, deterministic = false)
+        return keyCipher to valueCipher
     }
 }
