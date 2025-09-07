@@ -26,6 +26,7 @@ import com.harrytmthy.safebox.SafeBox
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.runner.RunWith
+import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -65,7 +66,9 @@ class SafeBoxMigrationHelperTest {
             .clear()
             .commit()
         context.deleteSharedPreferences(fileEsp)
-        context.deleteFile("$fileSafeBox.bin")
+        File(context.noBackupFilesDir, "$fileSafeBox.bin").delete()
+        File(context.noBackupFilesDir, "$fileSafeBox.key.bin").delete()
+        SafeBox.instances.remove(fileSafeBox)
     }
 
     @Test
