@@ -18,6 +18,7 @@ package com.harrytmthy.safebox.factory
 
 import android.content.Context
 import com.harrytmthy.safebox.cryptography.AesGcmCipherProvider
+import com.harrytmthy.safebox.cryptography.ChaCha20Cipher
 import com.harrytmthy.safebox.cryptography.ChaCha20CipherProvider
 import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.keystore.SecureRandomKeyProvider
@@ -53,15 +54,15 @@ object SafeBoxCryptoFactory {
         val keyCipherKeyProvider = SecureRandomKeyProvider.create(
             context = context,
             fileName = fileName,
-            keySize = ChaCha20CipherProvider.KEY_SIZE,
-            algorithm = ChaCha20CipherProvider.ALGORITHM,
+            keySize = ChaCha20Cipher.KEY_SIZE,
+            algorithm = ChaCha20Cipher.ALGORITHM,
             cipherProvider = aesGcmCipherProvider,
         )
         val valueCipherKeyProvider = SecureRandomKeyProvider.create(
             context = context,
             fileName = fileName,
-            keySize = ChaCha20CipherProvider.KEY_SIZE,
-            algorithm = ChaCha20CipherProvider.ALGORITHM,
+            keySize = ChaCha20Cipher.KEY_SIZE,
+            algorithm = ChaCha20Cipher.ALGORITHM,
             cipherProvider = aesGcmCipherProvider,
         )
         val keyCipher = ChaCha20CipherProvider(keyCipherKeyProvider, deterministic = true)

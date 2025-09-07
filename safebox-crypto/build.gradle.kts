@@ -55,6 +55,8 @@ dependencies {
     implementation(libs.androidx.annotation)
     implementation(libs.bouncy.castle.provider)
 
+    testImplementation(libs.kotlin.test)
+
     androidTestImplementation(libs.androidx.test.ext)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.kotlin.test)

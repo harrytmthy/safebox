@@ -49,7 +49,7 @@ class SecureRandomKeyProviderTest {
 
     @After
     fun tearDown() {
-        File(context.noBackupFilesDir, "test_key.bin").delete()
+        File(context.noBackupFilesDir, "test_key.key.bin").delete()
         KeyStore.getInstance("AndroidKeyStore").apply {
             load(null)
             deleteEntry("test-gcm-alias")
