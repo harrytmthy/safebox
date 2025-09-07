@@ -53,15 +53,12 @@ Compared to EncryptedSharedPreferences:
 
 ```kotlin
 dependencies {
-    implementation("io.github.harrytmthy:safebox:1.2.0")
+    implementation("io.github.harrytmthy:safebox:1.3.0-alpha01")
+
+    // Optional: standalone crypto helper
+    implementation("io.github.harrytmthy:safebox-crypto:1.3.0-alpha01")
 }
 ```
-
-### ⚠️ Heads up
-
-The `io.github.harrytmthy-dev` namespace is now **deprecated**. Starting from `v1.2.0-alpha01`, SafeBox will be published under the canonical Maven group `io.github.harrytmthy`.
-
-Please update your dependencies accordingly.
 
 ## Basic Usage
 
@@ -112,53 +109,34 @@ assertTrue(a1 !== b)    // different filenames = different instances
 
 > Repeating `SafeBox.create(context, fileName)` returns the existing instance for that `fileName`. When an instance already exists, **all parameters are ignored** except a non-null `stateListener`, which replaces the current listener.
 
-### Observing State Changes
-
-You can observe SafeBox lifecycle state transitions (`STARTING`, `WRITING`, `IDLE`) in two ways.
-
-#### 1. Instance-bound listener
-
-```kotlin
-val safeBox = SafeBox.create(
-    context = context,
-    fileName = PREF_FILE_NAME,
-    stateListener = SafeBoxStateListener { state ->
-        when (state) {
-            SafeBoxState.STARTING -> trackStart()    // Loading from disk
-            SafeBoxState.IDLE     -> trackIdle()     // No active persistence
-            SafeBoxState.WRITING  -> trackWrite()    // Persisting to disk
-        }
-    }
-)
-```
-
-#### 2. Global observer
-
-```kotlin
-val listener = SafeBoxStateListener { state ->
-    when (state) {
-        SafeBoxState.STARTING -> onStart()
-        SafeBoxState.IDLE     -> onIdle()
-        SafeBoxState.WRITING  -> onWrite()
-    }
-}
-SafeBoxGlobalStateObserver.addListener(PREF_FILE_NAME, listener)
-
-// later
-SafeBoxGlobalStateObserver.removeListener(PREF_FILE_NAME, listener)
-```
-
-You can also query the current state:
-
-```kotlin
-val state = SafeBoxGlobalStateObserver.getCurrentState(PREF_FILE_NAME)
-```
+> Need lifecycle hooks for diagnostics or analytics? ➡️ [Read the Observability Guide](docs/OBSERVABILITY.md)
 
 ## Migrating from EncryptedSharedPreferences
 
 SafeBox is a drop-in replacement for `EncryptedSharedPreferences`.
 
 ➡️ [Read the Migration Guide](docs/MIGRATION.md)
+
+## Text Encryption Support
+
+SafeBox includes a simple text encryption helper (`SafeBoxCrypto`) you can use for things like
+encrypting values before writing to Room or sending over the network:
+
+```kotlin
+// 1. Create a secret and store it in your own vault
+val secret: String = SafeBoxCrypto.createSecret()
+
+// 2. Use it to encrypt
+val userEntity = UserEntity(
+    id = SafeBoxCrypto.encrypt(userId, secret),
+    // ...
+)
+
+// 3. Retrieve it later
+val userId: String = SafeBoxCrypto.decrypt(userEntity.id, secret)
+```
+
+If you only need the helper, use the standalone `:safebox-crypto` module.
 
 ## Performance Benchmarks
 
