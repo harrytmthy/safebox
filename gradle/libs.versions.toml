@@ -52,6 +52,12 @@ protobuf-protoc = { group = "com.google.protobuf", name = "protoc", version.ref 
 safebox = { group = "io.github.harrytmthy", name = "safebox", version.ref = "safebox" }
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 
+# Dependencies of build-logic
+android-gradle = { group = "com.android.tools.build", name = "gradle", version.ref = "androidGradlePlugin" }
+dokka-gradle = { group = "org.jetbrains.dokka", name = "dokka-gradle-plugin", version.ref = "dokka" }
+kotlin-gradle = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }
+maven-publish = { group = "com.vanniktech", name = "gradle-maven-publish-plugin", version.ref = "mavenPublishPlugin" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }
 android-library = { id = "com.android.library", version.ref = "androidGradlePlugin" }
@@ -59,5 +65,9 @@ compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
-maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublishPlugin"}
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublishPlugin" }
 protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }
+
+# Convention Plugins
+safebox-android-library = { id = "safebox.android.library" }
+safebox-publishing = { id = "safebox.publishing" }

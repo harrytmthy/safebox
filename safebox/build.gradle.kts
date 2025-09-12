@@ -13,44 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import com.vanniktech.maven.publish.SonatypeHost
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    id("com.android.library")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.dokka")
-    id("com.vanniktech.maven.publish")
+    alias(libs.plugins.safebox.android.library)
+    alias(libs.plugins.safebox.publishing)
 }
-
-group = "io.github.harrytmthy"
-version = "1.3.0-alpha01"
 
 android {
     namespace = "com.harrytmthy.safebox"
-    compileSdk = 36
-
-    defaultConfig {
-        minSdk = 23
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
-
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-        }
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    kotlin {
-        compilerOptions {
-            jvmTarget = JvmTarget.fromTarget("11")
-        }
-    }
 }
 
 dependencies {
@@ -68,53 +38,9 @@ dependencies {
     androidTestImplementation(libs.kotlinx.coroutines.test)
 }
 
-dokka {
-    dokkaSourceSets {
-        configureEach {
-            includes.from("README.md")
-        }
-    }
-}
-
-tasks.register<Jar>("sourcesJar") {
-    archiveClassifier.set("sources")
-    from(android.sourceSets["main"].java.srcDirs)
-}
-
-tasks.register<Jar>("javadocJar") {
-    dependsOn("dokkaJavadoc")
-    archiveClassifier.set("javadoc")
-    from(tasks.named("dokkaJavadoc").map { it.outputs.files })
-}
-
 mavenPublishing {
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
-    signAllPublications()
-
     pom {
         name.set("SafeBox")
         description.set("A fast and secure replacement for SharedPreferences using memory-mapped file and ChaCha20 encryption.")
-        url.set("https://github.com/harrytmthy/safebox")
-
-        licenses {
-            license {
-                name.set("MIT License")
-                url.set("https://opensource.org/licenses/MIT")
-            }
-        }
-
-        developers {
-            developer {
-                id.set("harrytmthy")
-                name.set("Harry Timothy Tumalewa")
-                email.set("harrytmthy@gmail.com")
-            }
-        }
-
-        scm {
-            connection.set("scm:git:git://github.com/harrytmthy/safebox.git")
-            developerConnection.set("scm:git:ssh://github.com:harrytmthy/safebox.git")
-            url.set("https://github.com/harrytmthy/safebox")
-        }
     }
 }
