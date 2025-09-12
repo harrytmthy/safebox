@@ -51,7 +51,7 @@ android {
     }
     kotlin {
         compilerOptions {
-            jvmTarget = JvmTarget.fromTarget("11")
+            jvmTarget = JvmTarget.JVM_11
         }
     }
     buildFeatures {
