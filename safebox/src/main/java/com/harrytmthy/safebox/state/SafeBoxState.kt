@@ -19,12 +19,16 @@ package com.harrytmthy.safebox.state
 import com.harrytmthy.safebox.SafeBox
 
 /**
+ * **Deprecated:** SafeBox is designed to be a drop-in replacement for EncryptedSharedPreferences.
+ * State updates goes out-of-scope as SafeBox can no longer be closed.
+ *
  * Lifecycle state of a [SafeBox] instance.
  *
  * Emitted to [SafeBoxStateListener] for visibility during async work.
  *
  * @see SafeBoxStateListener
  */
+@Deprecated(message = "SafeBoxState is deprecated and will be removed in v1.4.")
 public enum class SafeBoxState {
 
     /**

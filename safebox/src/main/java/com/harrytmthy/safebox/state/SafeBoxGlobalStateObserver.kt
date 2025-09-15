@@ -21,11 +21,15 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
+ * **Deprecated:** SafeBox is designed to be a drop-in replacement for EncryptedSharedPreferences.
+ * State updates goes out-of-scope as SafeBox can no longer be closed.
+ *
  * Public observer interface for monitoring SafeBox state changes.
  *
  * Allows clients to observe SafeBox's lifecycle state transitions for a given file name,
  * enabling safer orchestration in multi-screen or asynchronous apps.
  */
+@Deprecated(message = "SafeBoxGlobalStateObserver is deprecated and will be removed in v1.4.")
 public object SafeBoxGlobalStateObserver {
 
     private val stateHolder = ConcurrentHashMap<String, SafeBoxState>()
