@@ -17,6 +17,9 @@
 package com.harrytmthy.safebox.state
 
 /**
+ * **Deprecated:** SafeBox is designed to be a drop-in replacement for EncryptedSharedPreferences.
+ * State updates goes out-of-scope as SafeBox can no longer be closed.
+ *
  * A listener interface for observing [SafeBoxState] changes tied to a specific SafeBox file.
  *
  * This is typically used in non-singleton SafeBox use cases (e.g. ViewModel-scoped),
@@ -24,6 +27,7 @@ package com.harrytmthy.safebox.state
  *
  * @see SafeBoxState
  */
+@Deprecated(message = "SafeBoxStateListener is deprecated and will be removed in v1.4.")
 public fun interface SafeBoxStateListener {
 
     /**
