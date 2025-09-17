@@ -1,0 +1,73 @@
+public final class com/harrytmthy/safebox/SafeBox : android/content/SharedPreferences {
+	public static final field Companion Lcom/harrytmthy/safebox/SafeBox$Companion;
+	public synthetic fun <init> (Lcom/harrytmthy/safebox/engine/SafeBoxEngine;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun contains (Ljava/lang/String;)Z
+	public static final fun create (Landroid/content/Context;Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
+	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;)Lcom/harrytmthy/safebox/SafeBox;
+	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;)Lcom/harrytmthy/safebox/SafeBox;
+	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/state/SafeBoxStateListener;)Lcom/harrytmthy/safebox/SafeBox;
+	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;)Lcom/harrytmthy/safebox/SafeBox;
+	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/state/SafeBoxStateListener;)Lcom/harrytmthy/safebox/SafeBox;
+	public fun edit ()Landroid/content/SharedPreferences$Editor;
+	public static final fun get (Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
+	public fun getAll ()Ljava/util/Map;
+	public fun getBoolean (Ljava/lang/String;Z)Z
+	public fun getFloat (Ljava/lang/String;F)F
+	public fun getInt (Ljava/lang/String;I)I
+	public fun getLong (Ljava/lang/String;J)J
+	public static final fun getOrNull (Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
+	public fun getString (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public fun getStringSet (Ljava/lang/String;Ljava/util/Set;)Ljava/util/Set;
+	public fun registerOnSharedPreferenceChangeListener (Landroid/content/SharedPreferences$OnSharedPreferenceChangeListener;)V
+	public final fun setCastFailureStrategy (Lcom/harrytmthy/safebox/strategy/ValueFallbackStrategy;)V
+	public fun unregisterOnSharedPreferenceChangeListener (Landroid/content/SharedPreferences$OnSharedPreferenceChangeListener;)V
+}
+
+public final class com/harrytmthy/safebox/SafeBox$Companion {
+	public final fun create (Landroid/content/Context;Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
+	public final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;)Lcom/harrytmthy/safebox/SafeBox;
+	public final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;)Lcom/harrytmthy/safebox/SafeBox;
+	public final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/state/SafeBoxStateListener;)Lcom/harrytmthy/safebox/SafeBox;
+	public final fun create (Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;)Lcom/harrytmthy/safebox/SafeBox;
+	public final fun create (Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/state/SafeBoxStateListener;)Lcom/harrytmthy/safebox/SafeBox;
+	public static synthetic fun create$default (Lcom/harrytmthy/safebox/SafeBox$Companion;Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/state/SafeBoxStateListener;ILjava/lang/Object;)Lcom/harrytmthy/safebox/SafeBox;
+	public static synthetic fun create$default (Lcom/harrytmthy/safebox/SafeBox$Companion;Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/state/SafeBoxStateListener;ILjava/lang/Object;)Lcom/harrytmthy/safebox/SafeBox;
+	public final fun get (Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
+	public final fun getOrNull (Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
+}
+
+public final class com/harrytmthy/safebox/migration/SafeBoxMigrationHelper {
+	public static final field INSTANCE Lcom/harrytmthy/safebox/migration/SafeBoxMigrationHelper;
+	public static final fun migrate (Landroid/content/SharedPreferences;Landroid/content/SharedPreferences;)V
+	public static final fun migrate (Landroid/content/SharedPreferences;Landroid/content/SharedPreferences;Z)V
+	public static synthetic fun migrate$default (Landroid/content/SharedPreferences;Landroid/content/SharedPreferences;ZILjava/lang/Object;)V
+}
+
+public final class com/harrytmthy/safebox/state/SafeBoxGlobalStateObserver {
+	public static final field INSTANCE Lcom/harrytmthy/safebox/state/SafeBoxGlobalStateObserver;
+	public static final fun addListener (Ljava/lang/String;Lcom/harrytmthy/safebox/state/SafeBoxStateListener;)V
+	public static final fun getCurrentState (Ljava/lang/String;)Lcom/harrytmthy/safebox/state/SafeBoxState;
+	public static final fun removeListener (Ljava/lang/String;Lcom/harrytmthy/safebox/state/SafeBoxStateListener;)V
+}
+
+public final class com/harrytmthy/safebox/state/SafeBoxState : java/lang/Enum {
+	public static final field IDLE Lcom/harrytmthy/safebox/state/SafeBoxState;
+	public static final field STARTING Lcom/harrytmthy/safebox/state/SafeBoxState;
+	public static final field WRITING Lcom/harrytmthy/safebox/state/SafeBoxState;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/harrytmthy/safebox/state/SafeBoxState;
+	public static fun values ()[Lcom/harrytmthy/safebox/state/SafeBoxState;
+}
+
+public abstract interface class com/harrytmthy/safebox/state/SafeBoxStateListener {
+	public abstract fun onStateChanged (Lcom/harrytmthy/safebox/state/SafeBoxState;)V
+}
+
+public final class com/harrytmthy/safebox/strategy/ValueFallbackStrategy : java/lang/Enum {
+	public static final field ERROR Lcom/harrytmthy/safebox/strategy/ValueFallbackStrategy;
+	public static final field WARN Lcom/harrytmthy/safebox/strategy/ValueFallbackStrategy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/harrytmthy/safebox/strategy/ValueFallbackStrategy;
+	public static fun values ()[Lcom/harrytmthy/safebox/strategy/ValueFallbackStrategy;
+}
+

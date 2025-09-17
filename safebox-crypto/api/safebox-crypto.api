@@ -1,0 +1,19 @@
+public final class com/harrytmthy/safebox/SafeBoxCrypto {
+	public static final field INSTANCE Lcom/harrytmthy/safebox/SafeBoxCrypto;
+	public final fun createSecret ()Ljava/lang/String;
+	public final fun decrypt (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public final fun decryptOrNull (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public final fun encrypt (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public final fun encryptOrNull (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public abstract interface class com/harrytmthy/safebox/cryptography/CipherProvider {
+	public abstract fun decrypt ([B)[B
+	public abstract fun encrypt ([B)[B
+}
+
+public final class com/harrytmthy/safebox/factory/SafeBoxCryptoFactory {
+	public static final field INSTANCE Lcom/harrytmthy/safebox/factory/SafeBoxCryptoFactory;
+	public final fun createChaCha20Providers (Landroid/content/Context;Ljava/lang/String;)Lkotlin/Pair;
+}
+

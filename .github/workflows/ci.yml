@@ -32,6 +32,9 @@ jobs:
       - name: Clean project
         run: ./gradlew clean
 
+      - name: API check
+        run: ./gradlew apiCheck
+
       - name: Run lint
         run: ./gradlew lint
 
