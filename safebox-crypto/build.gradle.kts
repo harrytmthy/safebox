@@ -17,6 +17,7 @@
 plugins {
     alias(libs.plugins.safebox.android.library)
     alias(libs.plugins.safebox.publishing)
+    alias(libs.plugins.kotlin.binary.compatibility)
 }
 
 android {

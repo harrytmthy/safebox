@@ -16,6 +16,7 @@ dokka = "2.0.0"
 junit4 = "4.13.2"
 kotlin = "2.2.10"
 kotlinxCoroutines = "1.10.2"
+kotlinBinaryCompatibility = "0.18.1"
 ksp = "2.2.10-2.0.2"
 mavenPublishPlugin = "0.32.0"
 protobuf = "4.29.2"
@@ -67,6 +68,7 @@ kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublishPlugin" }
 protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }
+kotlin-binary-compatibility = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "kotlinBinaryCompatibility" }
 
 # Convention Plugins
 safebox-android-library = { id = "safebox.android.library" }
