@@ -15,5 +15,21 @@
      limitations under the License.
 -->
 <resources>
-    <string name="app_name">safebox</string>
+    <string name="app_name">SafeBox</string>
+
+    <string name="playground_title">SafeBox Playground</string>
+    <string name="playground_key_label">Key</string>
+    <string name="playground_key_input_hint">Prefs key</string>
+    <string name="playground_value_label">Value</string>
+    <string name="playground_value_input_hint">Prefs value</string>
+    <string name="playground_cta_get">Get</string>
+    <string name="playground_cta_commit">Commit</string>
+    <string name="playground_cta_commit_label">Commit?</string>
+    <string name="playground_cta_apply">Apply</string>
+
+    <string name="playground_error_missing_key">Key must not be empty!</string>
+    <string name="playground_error_non_existent_key">Key %s does not exist!</string>
+    <string name="playground_error_get_failed">Failed to get key: %s</string>
+    <string name="playground_error_commit_failed">Failed to get key: %s</string>
+    <string name="playground_success">Success!</string>
 </resources>
