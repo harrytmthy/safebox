@@ -4,17 +4,20 @@ set -e
 
 cd "$(git rev-parse --show-toplevel)" || exit
 
-# Run spotlessCheck
-echo "Running spotless..."
-./gradlew spotlessCheck --init-script gradle/init.gradle.kts --no-configuration-cache
-if [ $? -ne 0 ]; then
-  echo "Spotless check failed. Please run below command:"
-  echo "./gradlew spotlessCheck --init-script gradle/init.gradle.kts --no-configuration-cache"
-  exit 1
+# Run apiCheck
+echo "Running apiCheck..."
+if ! ./gradlew apiCheck --quiet; then
+  echo "API check failed, retrying with clean..."
+  ./gradlew clean --no-configuration-cache
+  ./gradlew apiCheck --quiet || {
+    echo "API check still failed after clean. Fix public API compatibility or update baselines:"
+    echo "./gradlew :safebox:apiDump :safebox-crypto:apiDump"
+    exit 1
+  }
 fi
 
 # Run lint
-echo "Running lint (initial)..."
+echo "Running lint..."
 if ! ./gradlew lint --quiet; then
   echo "Lint failed, retrying with clean..."
   ./gradlew clean --no-configuration-cache
@@ -24,18 +27,24 @@ if ! ./gradlew lint --quiet; then
   }
 fi
 
+# Run spotlessCheck
+echo "Running spotless..."
+if ! ./gradlew spotlessCheck --init-script gradle/init.gradle.kts --no-configuration-cache; then
+  echo "Spotless check failed. Please run below command:"
+  echo "./gradlew spotlessCheck --init-script gradle/init.gradle.kts --no-configuration-cache"
+  exit 1
+fi
+
 # Run unit tests
 echo "Running unit tests..."
-./gradlew testDebugUnitTest --quiet
-if [ $? -ne 0 ]; then
+if ! ./gradlew testDebugUnitTest --quiet; then
   echo "Unit tests failed. Fix them before pushing."
   exit 1
 fi
 
 # Run instrumented tests
 echo "Running instrumented tests..."
-./gradlew connectedAndroidTest --quiet
-if [ $? -ne 0 ]; then
+if ! ./gradlew connectedAndroidTest --quiet; then
   echo "Instrumented tests failed. Fix them before pushing."
   exit 1
 fi
