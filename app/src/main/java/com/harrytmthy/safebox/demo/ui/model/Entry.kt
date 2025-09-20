@@ -14,15 +14,24 @@
  * limitations under the License.
  */
 
-package com.harrytmthy.safebox.demo.domain
+package com.harrytmthy.safebox.demo.ui.model
 
-import com.harrytmthy.safebox.demo.ui.model.KeyValueEntry
+import android.os.Parcelable
+import com.harrytmthy.safebox.demo.ui.enums.Action
+import kotlinx.parcelize.Parcelize
 
-interface PlaygroundRepository {
+sealed interface Entry {
+    val id: String
+}
 
-    fun contains(key: String): Boolean
+@Parcelize
+data class KeyValueEntry(
+    override val id: String,
+    val key: String,
+    val value: String,
+    val action: Action,
+) : Entry, Parcelable
 
-    fun getString(key: String): String?
-
-    fun saveEntries(entries: List<KeyValueEntry>, shouldClear: Boolean, shouldCommit: Boolean)
+data object ClearedEntry : Entry {
+    override val id: String = "ClearedEntry"
 }

@@ -17,7 +17,8 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <TextView
         android:id="@+id/tv_title"
@@ -68,12 +69,24 @@
         app:layout_constraintStart_toEndOf="@id/et_key"
         app:layout_constraintTop_toTopOf="@id/et_key" />
 
+    <Button
+        android:id="@+id/cta_clear"
+        android:layout_width="64dp"
+        android:layout_height="28dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/bg_round_rectangle"
+        android:text="@string/playground_cta_clear"
+        android:textSize="12sp"
+        app:layout_constraintBottom_toBottomOf="@id/et_key"
+        app:layout_constraintStart_toEndOf="@id/cta_get"
+        app:layout_constraintTop_toTopOf="@id/et_key" />
+
     <androidx.constraintlayout.widget.Barrier
         android:id="@+id/barrier_key_row"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:barrierDirection="bottom"
-        app:constraint_referenced_ids="tv_key,et_key,cta_get" />
+        app:constraint_referenced_ids="tv_key,et_key,cta_get,cta_clear" />
 
     <TextView
         android:id="@+id/tv_value"
@@ -108,29 +121,36 @@
         app:layout_constraintStart_toEndOf="@id/barrier_label"
         app:layout_constraintTop_toBottomOf="@id/barrier_key_row" />
 
-    <TextView
-        android:id="@+id/tv_commit"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:text="@string/playground_cta_commit_label"
+    <Button
+        android:id="@+id/cta_put"
+        android:layout_width="48dp"
+        android:layout_height="28dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/bg_round_rectangle"
+        android:text="@string/playground_cta_put"
         android:textSize="12sp"
-        app:layout_constraintStart_toStartOf="@id/cta_get"
-        app:layout_constraintTop_toBottomOf="@id/barrier_key_row" />
+        app:layout_constraintBottom_toBottomOf="@id/et_value"
+        app:layout_constraintStart_toEndOf="@id/et_value"
+        app:layout_constraintTop_toTopOf="@id/et_value" />
 
-    <Switch
-        android:id="@+id/cta_commit"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        app:layout_constraintTop_toBottomOf="@id/tv_commit"
-        app:layout_constraintStart_toStartOf="@id/tv_commit" />
+    <Button
+        android:id="@+id/cta_remove"
+        android:layout_width="64dp"
+        android:layout_height="28dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/bg_round_rectangle"
+        android:text="@string/playground_cta_remove"
+        android:textSize="12sp"
+        app:layout_constraintBottom_toBottomOf="@id/et_value"
+        app:layout_constraintStart_toEndOf="@id/cta_put"
+        app:layout_constraintTop_toTopOf="@id/et_value" />
 
     <androidx.constraintlayout.widget.Barrier
         android:id="@+id/barrier_value_row"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:barrierDirection="bottom"
-        app:constraint_referenced_ids="tv_value,et_value,cta_commit" />
+        app:constraint_referenced_ids="tv_value,et_value,cta_put,cta_remove" />
 
     <Button
         android:id="@+id/cta_apply"
@@ -142,5 +162,69 @@
         app:layout_constraintEnd_toEndOf="@id/et_value"
         app:layout_constraintStart_toStartOf="@id/et_value"
         app:layout_constraintTop_toBottomOf="@id/barrier_value_row" />
+
+    <TextView
+        android:id="@+id/tv_commit"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/playground_cta_commit_label"
+        android:textSize="12sp"
+        app:layout_constraintStart_toStartOf="@id/cta_put"
+        app:layout_constraintTop_toBottomOf="@id/barrier_value_row" />
+
+    <Switch
+        android:id="@+id/cta_commit"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintBottom_toBottomOf="@id/cta_apply"
+        app:layout_constraintTop_toBottomOf="@id/tv_commit"
+        app:layout_constraintStart_toStartOf="@id/tv_commit" />
+
+    <TextView
+        android:id="@+id/tv_staged_section"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="16dp"
+        android:text="@string/playground_section_staged_entries"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/cta_apply" />
+
+    <androidx.appcompat.widget.AppCompatImageView
+        android:id="@+id/cta_clear_staged"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_marginEnd="20dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="4dp"
+        app:srcCompat="@drawable/ic_close"
+        app:tint="@color/dark"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="@id/tv_staged_section"
+        app:layout_constraintTop_toTopOf="@id/tv_staged_section" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_staged_entries"
+        android:layout_width="0dp"
+        android:layout_height="200dp"
+        android:layout_marginEnd="24dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_rectangle_outline"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="@id/tv_staged_section"
+        app:layout_constraintTop_toBottomOf="@id/tv_staged_section"
+        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+        tools:listitem="@layout/item_key_value_entry" />
+
+    <androidx.constraintlayout.widget.Group
+        android:id="@+id/staged_section"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        app:constraint_referenced_ids="tv_staged_section,cta_clear_staged,rv_staged_entries"
+        tools:visibility="visible" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

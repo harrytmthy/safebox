@@ -16,10 +16,13 @@
 
 package com.harrytmthy.safebox.demo.ui
 
+import android.content.DialogInterface.OnClickListener
 import android.os.Bundle
 import android.view.LayoutInflater
 import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
+import androidx.appcompat.app.AlertDialog
+import androidx.core.view.isInvisible
 import androidx.core.widget.doOnTextChanged
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -28,6 +31,8 @@ import com.google.android.material.snackbar.Snackbar
 import com.harrytmthy.safebox.demo.R
 import com.harrytmthy.safebox.demo.SafeBoxApplication
 import com.harrytmthy.safebox.demo.databinding.ActivityPlaygroundBinding
+import com.harrytmthy.safebox.demo.ui.adapter.StagedEntriesAdapter
+import com.harrytmthy.safebox.demo.ui.model.Entry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -40,6 +45,8 @@ class PlaygroundActivity : ComponentActivity() {
     private val viewModel: PlaygroundViewModel by viewModels { viewModelFactory }
 
     private lateinit var binding: ActivityPlaygroundBinding
+
+    private var dialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         (applicationContext as SafeBoxApplication).playgroundComponent.inject(this)
@@ -56,13 +63,27 @@ class PlaygroundActivity : ComponentActivity() {
             renderKeyValuePair(currentKey, currentValue)
             renderCommitSwitch(shouldCommit)
             renderApplyButton(shouldCommit)
+            renderStagedSection(stagedEntries)
         }
     }
 
     private fun observeEvent() {
         viewModel.event.collectOnStarted {
-            if (this is PlaygroundViewModel.Event.ShowSnackBar) {
-                Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+            when (this) {
+                is PlaygroundViewModel.Event.ShowSnackBar -> {
+                    Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+                }
+                is PlaygroundViewModel.Event.ShowConfirmation -> {
+                    val onConfirm = OnClickListener { _, _ -> viewModel.clearStagedEntries() }
+                    val onDismiss = OnClickListener { _, _ -> dialog?.dismiss() }
+                    dialog?.dismiss()
+                    dialog = AlertDialog.Builder(this@PlaygroundActivity)
+                        .setTitle(title)
+                        .setMessage(message)
+                        .setPositiveButton(positiveButtonText, onConfirm)
+                        .setNegativeButton(negativeButtonText, onDismiss)
+                        .show()
+                }
             }
         }
     }
@@ -76,6 +97,10 @@ class PlaygroundActivity : ComponentActivity() {
                 viewModel.updateCurrentValue(text?.toString().orEmpty())
             }
             ctaGet.setOnClickListener { viewModel.getString() }
+            ctaClear.setOnClickListener { viewModel.clear() }
+            ctaPut.setOnClickListener { viewModel.putString() }
+            ctaRemove.setOnClickListener { viewModel.remove() }
+            ctaClearStaged.setOnClickListener { viewModel.showConfirmationDialog() }
             ctaCommit.setOnCheckedChangeListener { button, _ ->
                 if (button.isPressed) {
                     viewModel.toggleCommit()
@@ -84,6 +109,10 @@ class PlaygroundActivity : ComponentActivity() {
             ctaApply.setOnClickListener { viewModel.applyOrCommit() }
         }
     }
+
+    private fun getOrCreateStagedEntriesAdapter(): StagedEntriesAdapter =
+        (binding.rvStagedEntries.adapter as? StagedEntriesAdapter)
+            ?: StagedEntriesAdapter().also { binding.rvStagedEntries.adapter = it }
 
     private fun renderKeyValuePair(currentKey: String, currentValue: String) {
         if (currentKey != binding.etKey.text.toString()) {
@@ -104,6 +133,11 @@ class PlaygroundActivity : ComponentActivity() {
         } else {
             getString(R.string.playground_cta_commit)
         }
+    }
+
+    private fun renderStagedSection(stagedEntries: List<Entry>) {
+        getOrCreateStagedEntriesAdapter().submitList(stagedEntries)
+        binding.stagedSection.isInvisible = stagedEntries.isEmpty()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

@@ -17,11 +17,15 @@
 package com.harrytmthy.safebox.demo.ui
 
 import androidx.lifecycle.SavedStateHandle
+import com.harrytmthy.safebox.demo.ui.model.ClearedEntry
+import com.harrytmthy.safebox.demo.ui.model.Entry
+import com.harrytmthy.safebox.demo.ui.model.KeyValueEntry
 
 data class PlaygroundUiState(
     val currentKey: String,
     val currentValue: String,
     val shouldCommit: Boolean,
+    val stagedEntries: List<Entry>,
 ) {
 
     companion object {
@@ -31,6 +35,12 @@ data class PlaygroundUiState(
                 currentKey = savedStateHandle.get<String>("currentKey").orEmpty(),
                 currentValue = savedStateHandle.get<String>("currentValue").orEmpty(),
                 shouldCommit = savedStateHandle.get<Boolean>("shouldCommit") ?: false,
+                stagedEntries = buildList {
+                    if (savedStateHandle.get<Boolean>("shouldClear") == true) {
+                        add(ClearedEntry)
+                    }
+                    savedStateHandle.get<ArrayList<KeyValueEntry>>("stagedEntries")?.let(::addAll)
+                },
             )
     }
 }

@@ -19,6 +19,8 @@ package com.harrytmthy.safebox.demo.data
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.harrytmthy.safebox.demo.domain.PlaygroundRepository
+import com.harrytmthy.safebox.demo.ui.enums.Action
+import com.harrytmthy.safebox.demo.ui.model.KeyValueEntry
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,10 +35,21 @@ class PlaygroundRepositoryImpl @Inject constructor(
     override fun getString(key: String): String? =
         prefs.getString(key, null)
 
-    override fun saveEntries(entries: Map<String, String>, shouldCommit: Boolean) {
+    override fun saveEntries(
+        entries: List<KeyValueEntry>,
+        shouldClear: Boolean,
+        shouldCommit: Boolean,
+    ) {
         prefs.edit(commit = shouldCommit) {
-            for ((key, value) in entries) {
-                putString(key, value)
+            if (shouldClear) {
+                clear()
+            }
+            for (entry in entries) {
+                if (entry.action == Action.PUT) {
+                    putString(entry.key, entry.value)
+                } else {
+                    remove(entry.key)
+                }
             }
         }
     }

@@ -27,6 +27,9 @@ import com.harrytmthy.safebox.demo.R
 import com.harrytmthy.safebox.demo.core.DispatchersProvider
 import com.harrytmthy.safebox.demo.core.ResourcesProvider
 import com.harrytmthy.safebox.demo.domain.PlaygroundRepository
+import com.harrytmthy.safebox.demo.ui.enums.Action
+import com.harrytmthy.safebox.demo.ui.model.ClearedEntry
+import com.harrytmthy.safebox.demo.ui.model.KeyValueEntry
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +37,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.reflect.KClass
@@ -86,22 +90,79 @@ class PlaygroundViewModel(
         }
     }
 
-    fun applyOrCommit() {
+    fun putString() {
+        addNewEntry(Action.PUT)
+    }
+
+    fun remove() {
+        addNewEntry(Action.REMOVE)
+    }
+
+    fun clear() {
+        val state = _state.value
+        if (state.stagedEntries.firstOrNull() != ClearedEntry) {
+            _state.update { it.copy(stagedEntries = listOf(ClearedEntry) + state.stagedEntries) }
+        }
+    }
+
+    private fun addNewEntry(action: Action) {
         val state = _state.value
         if (state.currentKey.isEmpty()) {
             showSnackBar(R.string.playground_error_missing_key)
             return
         }
-        val currentEntry = state.currentKey to state.currentValue
+        val newEntry = KeyValueEntry(
+            id = UUID.randomUUID().toString(),
+            key = state.currentKey,
+            value = state.currentValue,
+            action = action,
+        )
+        _state.update {
+            it.copy(
+                currentKey = "",
+                currentValue = "",
+                stagedEntries = state.stagedEntries + newEntry,
+            )
+        }
+    }
+
+    fun showConfirmationDialog() {
+        val event = with(resourcesProvider) {
+            Event.ShowConfirmation(
+                title = getString(R.string.playground_confirmation_dialog_title),
+                message = getString(R.string.playground_confirmation_dialog_message),
+                positiveButtonText = getString(R.string.playground_confirmation_dialog_positive),
+                negativeButtonText = getString(R.string.playground_confirmation_dialog_negative),
+            )
+        }
+        _event.tryEmit(event)
+    }
+
+    fun clearStagedEntries() {
+        _state.update { it.copy(stagedEntries = emptyList()) }
+    }
+
+    fun applyOrCommit() {
+        val state = _state.value
+        if (state.stagedEntries.isEmpty()) {
+            showSnackBar(R.string.playground_error_no_staged_entry)
+            return
+        }
         viewModelScope.launch(dispatchersProvider.io) {
             runCatching {
-                playgroundRepository.saveEntries(linkedMapOf(currentEntry), state.shouldCommit)
+                playgroundRepository.saveEntries(
+                    entries = state.stagedEntries.filterIsInstance<KeyValueEntry>(),
+                    shouldClear = state.stagedEntries.firstOrNull() == ClearedEntry,
+                    shouldCommit = state.shouldCommit,
+                )
             }.getOrElse {
                 showSnackBar(R.string.playground_error_commit_failed, it.message.orEmpty())
                 return@launch
             }
             showSnackBar(R.string.playground_success)
-            _state.update { it.copy(currentKey = "", currentValue = "") }
+            _state.update {
+                it.copy(currentKey = "", currentValue = "", stagedEntries = emptyList())
+            }
         }
     }
 
@@ -114,6 +175,14 @@ class PlaygroundViewModel(
         savedStateHandle["currentKey"] = state.currentKey
         savedStateHandle["currentValue"] = state.currentValue
         savedStateHandle["shouldCommit"] = state.shouldCommit
+        savedStateHandle["shouldClear"] = state.stagedEntries.firstOrNull() is ClearedEntry
+        val stagedEntries = ArrayList<KeyValueEntry>(state.stagedEntries.size)
+        for (entry in state.stagedEntries) {
+            if (entry is KeyValueEntry) {
+                stagedEntries.add(entry)
+            }
+        }
+        savedStateHandle["stagedEntries"] = stagedEntries
     }
 
     private fun showSnackBar(@StringRes resId: Int) {
@@ -127,7 +196,15 @@ class PlaygroundViewModel(
     }
 
     sealed class Event {
+
         data class ShowSnackBar(val message: String) : Event()
+
+        data class ShowConfirmation(
+            val title: String,
+            val message: String,
+            val positiveButtonText: String,
+            val negativeButtonText: String,
+        ) : Event()
     }
 
     @Singleton

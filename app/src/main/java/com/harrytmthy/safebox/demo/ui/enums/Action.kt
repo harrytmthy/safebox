@@ -14,15 +14,9 @@
  * limitations under the License.
  */
 
-package com.harrytmthy.safebox.demo.domain
+package com.harrytmthy.safebox.demo.ui.enums
 
-import com.harrytmthy.safebox.demo.ui.model.KeyValueEntry
-
-interface PlaygroundRepository {
-
-    fun contains(key: String): Boolean
-
-    fun getString(key: String): String?
-
-    fun saveEntries(entries: List<KeyValueEntry>, shouldClear: Boolean, shouldCommit: Boolean)
+enum class Action {
+    PUT,
+    REMOVE,
 }

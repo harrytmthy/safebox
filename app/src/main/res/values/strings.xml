@@ -23,13 +23,28 @@
     <string name="playground_value_label">Value</string>
     <string name="playground_value_input_hint">Prefs value</string>
     <string name="playground_cta_get">Get</string>
+    <string name="playground_cta_put">Put</string>
+    <string name="playground_cta_clear">Clear</string>
+    <string name="playground_cta_remove">Remove</string>
     <string name="playground_cta_commit">Commit</string>
     <string name="playground_cta_commit_label">Commit?</string>
     <string name="playground_cta_apply">Apply</string>
+    <string name="playground_section_staged_entries">Staged Entries</string>
+
+    <string name="playground_cleared_entry_text">Clear Triggered!</string>
+    <string name="playground_entry_prefix_key">Key:\u00A0</string>
+    <string name="playground_entry_prefix_value">Value:\u00A0</string>
+    <string name="playground_entry_put_label">PUT</string>
+    <string name="playground_entry_remove_label">REMOVE</string>
+    <string name="playground_confirmation_dialog_title">Warning</string>
+    <string name="playground_confirmation_dialog_message">This action will remove all staged entries. Proceed?</string>
+    <string name="playground_confirmation_dialog_positive">Yes</string>
+    <string name="playground_confirmation_dialog_negative">No</string>
 
     <string name="playground_error_missing_key">Key must not be empty!</string>
     <string name="playground_error_non_existent_key">Key %s does not exist!</string>
     <string name="playground_error_get_failed">Failed to get key: %s</string>
     <string name="playground_error_commit_failed">Failed to get key: %s</string>
+    <string name="playground_error_no_staged_entry">Nothing to Apply/Commit. Please PUT some entries!</string>
     <string name="playground_success">Success!</string>
 </resources>
