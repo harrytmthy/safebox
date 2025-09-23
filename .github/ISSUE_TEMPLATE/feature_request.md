@@ -18,7 +18,3 @@ What are the things to achieve.
 ### Proposal
 
 What is the proposed solution.
-
-### Benefits
-
-What are the benefits of achieving the goal.
