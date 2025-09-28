@@ -20,7 +20,6 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.harrytmthy.safebox.extensions.toBytes
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.runner.RunWith
@@ -31,7 +30,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
 class SafeBoxBlobStoreTest {
 
@@ -200,5 +198,113 @@ class SafeBoxBlobStoreTest {
     @Test
     fun getFileName_shouldReturnFileName() {
         assertEquals(fileName, blobStore.getFileName())
+    }
+
+    @Test
+    fun write_crossesPageBoundary_shouldRolloverToNextPage() = runTest {
+        val cap = SafeBoxBlobStore.BUFFER_CAPACITY.toInt()
+        val header = SafeBoxBlobStore.HEADER_SIZE
+
+        val keyA = "a".toByteArray().toBytes()
+        val keyB = "b".toByteArray().toBytes()
+
+        // Choose valueA so the remaining space in page 0 is 8 bytes.
+        // Then valueB (1 byte) won't fit because it needs header+key+1 = 9 bytes.
+        val valueA = ByteArray(cap - (header + "a".length) - 8)
+        val valueB = byteArrayOf(0x7F)
+
+        blobStore.write(keyA, valueA)
+        blobStore.write(keyB, valueB)
+
+        val result = blobStore.loadPersistedEntries()
+
+        assertContentEquals(valueA, result[keyA])
+        assertContentEquals(valueB, result[keyB])
+
+        val metaA = blobStore.entryMetas.getValue(keyA)
+        val metaB = blobStore.entryMetas.getValue(keyB)
+        assertEquals(0, metaA.page)
+        assertEquals(1, metaB.page)
+        assertEquals(0, metaB.offset)
+    }
+
+    @Test
+    fun overwrite_whenNoFitInSamePage_shouldAllocateNewPageAndMoveEntry() = runTest {
+        val cap = SafeBoxBlobStore.BUFFER_CAPACITY.toInt()
+        val header = SafeBoxBlobStore.HEADER_SIZE
+
+        val key = "k".toByteArray().toBytes()
+        val fillerKey = "f".toByteArray().toBytes()
+
+        val small = ByteArray(10)
+        blobStore.write(key, small)
+
+        // Fill page 0 so only 8 bytes remain
+        val filler = ByteArray(cap - (header + "k".length + small.size) - (header + "f".length) - 8)
+        blobStore.write(fillerKey, filler)
+
+        val larger = ByteArray(100)
+        blobStore.write(key, larger) // should not fit page 0
+
+        val result = blobStore.loadPersistedEntries()
+        assertContentEquals(larger, result[key])
+        assertContentEquals(filler, result[fillerKey])
+
+        val metaKey = blobStore.entryMetas.getValue(key)
+        val metaFiller = blobStore.entryMetas.getValue(fillerKey)
+        assertEquals(1, metaKey.page)
+        assertEquals(0, metaKey.offset)
+        assertEquals(0, metaFiller.page)
+    }
+
+    @Test
+    fun deleteAll_shouldShrinkFileBackToSinglePage() = runTest {
+        val cap = SafeBoxBlobStore.BUFFER_CAPACITY.toInt()
+        val header = SafeBoxBlobStore.HEADER_SIZE
+
+        val keyA = "a".toByteArray().toBytes()
+        val keyB = "b".toByteArray().toBytes()
+
+        val valueA = ByteArray(cap - (header + "a".length) - 8)
+        val valueB = byteArrayOf(0x01)
+
+        blobStore.write(keyA, valueA)
+        blobStore.write(keyB, valueB) // rolls to page 1
+
+        blobStore.deleteAll()
+
+        val bin = File(context.noBackupFilesDir, "$fileName.bin")
+        assertEquals(SafeBoxBlobStore.BUFFER_CAPACITY, bin.length())
+        assertTrue(blobStore.entryMetas.isEmpty())
+    }
+
+    @Test
+    fun deleteFromPage0_thenWrite_shouldReuseEarlierPage() = runTest {
+        val cap = SafeBoxBlobStore.BUFFER_CAPACITY.toInt()
+        val header = SafeBoxBlobStore.HEADER_SIZE
+
+        val keyA = "a".toByteArray().toBytes()
+        val keyB = "b".toByteArray().toBytes()
+        val keyC = "c".toByteArray().toBytes()
+
+        val valueA = ByteArray(cap - (header + "a".length) - 8)
+        val valueB = byteArrayOf(0x55)
+
+        blobStore.write(keyA, valueA) // fills page 0 to leave 8 bytes
+        blobStore.write(keyB, valueB) // goes to page 1
+
+        blobStore.delete(keyA) // compact page 0, tail moves back
+
+        val valueC = ByteArray(64)
+        blobStore.write(keyC, valueC) // should reuse page 0 tail
+
+        val result = blobStore.loadPersistedEntries()
+        assertContentEquals(valueB, result[keyB])
+        assertContentEquals(valueC, result[keyC])
+
+        val metaB = blobStore.entryMetas.getValue(keyB)
+        val metaC = blobStore.entryMetas.getValue(keyC)
+        assertEquals(1, metaB.page)
+        assertEquals(0, metaC.page)
     }
 }

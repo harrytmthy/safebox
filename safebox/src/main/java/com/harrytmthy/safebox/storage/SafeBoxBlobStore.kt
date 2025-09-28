@@ -133,7 +133,7 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
      */
     internal suspend fun write(encryptedKey: Bytes, encryptedValue: ByteArray) {
         val entrySize = HEADER_SIZE + encryptedKey.value.size + encryptedValue.size
-        if (entrySize > BUFFER_CAPACITY) {
+        if (entrySize >= BUFFER_CAPACITY) {
             error("Failed to write entry with size $entrySize (max: $BUFFER_CAPACITY bytes)!")
         }
         writeMutex.withLock {
@@ -141,7 +141,7 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
             var page = entry?.page ?: buffers.lastIndex
             for (currentPage in buffers.indices) {
                 val prevSize = entry?.size?.takeIf { currentPage == entry.page } ?: 0
-                if (nextWritePositions[currentPage] - prevSize + entrySize <= BUFFER_CAPACITY) {
+                if (nextWritePositions[currentPage] - prevSize + entrySize < BUFFER_CAPACITY) {
                     page = currentPage
                     break
                 }
