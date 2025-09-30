@@ -34,9 +34,12 @@ import com.harrytmthy.safebox.state.SafeBoxState.WRITING
 import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.storage.SafeBoxBlobStore
+import com.harrytmthy.safebox.storage.SafeBoxRecoveryBlobStore
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -49,6 +52,7 @@ import javax.crypto.AEADBadTagException
 
 internal class SafeBoxEngine private constructor(
     private val blobStore: SafeBoxBlobStore,
+    private val recoveryBlobStore: SafeBoxRecoveryBlobStore,
     private val keyCipherProvider: CipherProvider,
     private val valueCipherProvider: CipherProvider,
     private val ioDispatcher: CoroutineDispatcher,
@@ -57,6 +61,8 @@ internal class SafeBoxEngine private constructor(
 ) {
 
     private val entries: MutableMap<Bytes, ByteArray> = ConcurrentHashMap()
+
+    private val recoveryEntries = HashMap<Bytes, ByteArray>()
 
     private val byteDecoder = ByteDecoder()
 
@@ -74,9 +80,23 @@ internal class SafeBoxEngine private constructor(
 
     private var callback: Callback? = null
 
+    private var recoveryJob: Job? = null
+
+    private var recoveryBackoffMs = 1_000L
+
     init {
         launchWithStartingState {
             entries += blobStore.loadPersistedEntries()
+            recoveryBlobStore.loadPersistedEntries(blobStore.getFileName().toBytes())
+                .takeIf { it.isNotEmpty() }
+                ?.let {
+                    entries += it
+                    recoveryEntries += it
+                }
+        }.invokeOnCompletion {
+            if (recoveryEntries.isNotEmpty()) {
+                scheduleRecoveryEntriesWrite()
+            }
         }
     }
 
@@ -186,7 +206,17 @@ internal class SafeBoxEngine private constructor(
                 is Put -> {
                     val encryptedKey = key.toEncryptedKey()
                     val encryptedValue = action.encodedValue.value.let(valueCipherProvider::encrypt)
-                    blobStore.write(encryptedKey, encryptedValue)
+                    try {
+                        blobStore.write(encryptedKey, encryptedValue)
+                    } catch (_: Exception) {
+                        recoveryBlobStore.write(
+                            fileName = blobStore.getFileName().toBytes(),
+                            encryptedKey = encryptedKey,
+                            encryptedValue = encryptedValue,
+                        )
+                        recoveryEntries[encryptedKey] = encryptedValue
+                        scheduleRecoveryEntriesWrite()
+                    }
                 }
                 is Remove -> {
                     val encryptedKey = key.toEncryptedKey()
@@ -198,9 +228,46 @@ internal class SafeBoxEngine private constructor(
         }
     }
 
-    private inline fun launchWithStartingState(crossinline block: suspend () -> Unit) {
+    private fun scheduleRecoveryEntriesWrite() {
+        if (recoveryJob?.isActive == true) {
+            return
+        }
+        recoveryJob = launchWriteAsync {
+            val fileId = blobStore.getFileName().toBytes()
+            val snapshot = ArrayList(recoveryEntries.entries)
+            var failed = false
+            for ((encryptedKey, encryptedValue) in snapshot) {
+                try {
+                    blobStore.write(encryptedKey, encryptedValue)
+                    recoveryEntries.remove(encryptedKey)
+                } catch (_: Exception) {
+                    failed = true
+                    break
+                }
+            }
+            if (!failed && recoveryEntries.isEmpty()) {
+                recoveryBlobStore.delete(fileId)
+                recoveryBackoffMs = 1_000L
+            }
+        }.apply {
+            invokeOnCompletion { cause ->
+                if (recoveryEntries.isEmpty()) {
+                    return@invokeOnCompletion
+                }
+                if (cause != null) {
+                    recoveryBackoffMs = (recoveryBackoffMs * 2).coerceAtMost(30_000L)
+                }
+                safeBoxScope.launch(ioDispatcher) {
+                    delay(recoveryBackoffMs)
+                    scheduleRecoveryEntriesWrite()
+                }
+            }
+        }
+    }
+
+    private inline fun launchWithStartingState(crossinline block: suspend () -> Unit): Job {
         updateState(STARTING)
-        safeBoxScope.launch(ioDispatcher) {
+        return safeBoxScope.launch(ioDispatcher) {
             try {
                 block()
             } finally {
@@ -212,7 +279,9 @@ internal class SafeBoxEngine private constructor(
         }
     }
 
-    private inline fun launchWriteBlocking(crossinline block: suspend () -> Unit): Boolean {
+    private inline fun launchWriteBlocking(
+        crossinline block: suspend () -> Unit,
+    ): Boolean {
         val currentWriteBarrier = CompletableDeferred<Unit>()
         val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
         return runBlocking {
@@ -228,10 +297,10 @@ internal class SafeBoxEngine private constructor(
         }
     }
 
-    private inline fun launchWriteAsync(crossinline block: suspend () -> Unit) {
+    private inline fun launchWriteAsync(crossinline block: suspend () -> Unit): Job {
         val currentWriteBarrier = CompletableDeferred<Unit>()
         val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
-        safeBoxScope.launch(ioDispatcher) {
+        return safeBoxScope.launch(ioDispatcher) {
             try {
                 withStateTransition(previousWriteBarrier, block)
             } catch (e: Exception) {
@@ -334,6 +403,7 @@ internal class SafeBoxEngine private constructor(
             val appTargetsRPlus = context.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.R
             return SafeBoxEngine(
                 blobStore = blobStore,
+                recoveryBlobStore = SafeBoxRecoveryBlobStore.getOrCreate(context),
                 keyCipherProvider = keyCipherProvider,
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
