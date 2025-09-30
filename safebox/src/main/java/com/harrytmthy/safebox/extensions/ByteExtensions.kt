@@ -21,6 +21,8 @@ import com.harrytmthy.safebox.storage.Bytes
 
 internal fun ByteArray.toBytes(): Bytes = Bytes(this)
 
+internal fun String.toBytes(): Bytes = this.toByteArray().toBytes()
+
 internal fun Int.toEncodedByteArray(valueTypeTag: Byte = ValueTypeTag.INT): ByteArray =
     byteArrayOf(
         valueTypeTag,

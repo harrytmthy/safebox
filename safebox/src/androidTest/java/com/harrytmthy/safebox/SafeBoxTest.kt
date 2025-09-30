@@ -374,6 +374,23 @@ class SafeBoxTest {
         assertEquals(true, prefs.getBoolean("key", false))
     }
 
+    @Test
+    fun write_whenPrimaryBlobUnavailable_shouldFallbackToRecovery_andSurviveRecreate() = runTest {
+        safeBox = createSafeBox()
+        engines[fileName]?.closeBlobStoreChannel()
+        val key = "recovery-key"
+        val value = "recovery-value-" + "x".repeat(1024)
+
+        safeBox.edit().putString(key, value).commit()
+        assertEquals(value, safeBox.getString(key, null))
+
+        engines[fileName]?.closeBlobStoreChannel()
+        SafeBox.instances.remove(fileName)
+        safeBox = createSafeBox()
+
+        assertEquals(value, safeBox.getString(key, null))
+    }
+
     private fun cleanupResources() {
         val iterator = engines.iterator()
         while (iterator.hasNext()) {

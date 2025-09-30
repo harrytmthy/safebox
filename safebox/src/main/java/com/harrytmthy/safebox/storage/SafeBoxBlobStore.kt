@@ -98,9 +98,9 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
                 val encryptedKey = ByteArray(keyLength).also(buffer::get).toBytes()
                 val encryptedValue = ByteArray(valueLength).also(buffer::get)
                 entries[encryptedKey] = encryptedValue
-                entryMetas[encryptedKey] = EntryMeta(currentPage, offset, entrySize)
+                entryMetas[encryptedKey] = EntryMeta(offset, entrySize, currentPage)
                 perPageEncryptedKeys[currentPage].add(encryptedKey)
-                offset += HEADER_SIZE + keyLength + valueLength
+                offset += entrySize
                 when {
                     offset.toLong() > BUFFER_CAPACITY -> error("SafeBox blob store is corrupted!")
                     offset.toLong() == BUFFER_CAPACITY -> {
@@ -152,10 +152,16 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
                 }
             }
             if (entry != null) {
-                val remainingOffset = entry.offset + entry.size
-                val remainingSize = nextWritePositions[entry.page] - remainingOffset
-                shiftRemainingBytes(entry.page, remainingSize, remainingOffset, entry.offset)
-                updateEntryMetaOffsets(entry.page, entry.offset + entry.size, entry.size)
+                nextWritePositions[entry.page] = buffers[entry.page].shiftLeft(
+                    currentTail = nextWritePositions[entry.page],
+                    fromOffset = entry.offset + entry.size,
+                    toOffset = entry.offset,
+                )
+                entryMetas.adjustOffsets(
+                    keys = perPageEncryptedKeys[entry.page],
+                    fromOffset = entry.offset + entry.size,
+                    delta = entry.size,
+                )
                 if (page != entry.page) {
                     perPageEncryptedKeys[entry.page].remove(encryptedKey)
                 }
@@ -180,13 +186,16 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
                     continue
                 }
                 val entry = entryMetas.getValue(encryptedKey)
-                shiftRemainingBytes(
-                    page = entry.page,
-                    remainingSize = nextWritePositions[entry.page] - (entry.offset + entry.size),
+                nextWritePositions[entry.page] = buffers[entry.page].shiftLeft(
+                    currentTail = nextWritePositions[entry.page],
                     fromOffset = entry.offset + entry.size,
                     toOffset = entry.offset,
                 )
-                updateEntryMetaOffsets(entry.page, entry.offset + entry.size, entry.size)
+                entryMetas.adjustOffsets(
+                    keys = perPageEncryptedKeys[entry.page],
+                    fromOffset = entry.offset + entry.size,
+                    delta = entry.size,
+                )
                 perPageEncryptedKeys[entry.page].remove(encryptedKey)
             }
             entryMetas -= encryptedKeys
@@ -241,40 +250,9 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
         buffer.put(encryptedKey.value)
         buffer.put(encryptedValue)
         buffer.force()
-        entryMetas[encryptedKey] = EntryMeta(page, nextWritePositions[page], size)
+        entryMetas[encryptedKey] = EntryMeta(nextWritePositions[page], size, page)
         perPageEncryptedKeys[page].add(encryptedKey)
         nextWritePositions[page] += size
-    }
-
-    private fun shiftRemainingBytes(page: Int, remainingSize: Int, fromOffset: Int, toOffset: Int) {
-        val buffer = buffers[page]
-        if (toOffset + remainingSize > buffer.capacity()) {
-            error("Cannot shift the remaining bytes. Not enough buffer capacity.")
-        }
-        if (remainingSize == 0) {
-            buffer.position(toOffset)
-        } else {
-            buffer.position(fromOffset)
-            val remainingBytes = ByteArray(remainingSize).apply(buffer::get)
-            buffer.position(toOffset)
-            buffer.put(remainingBytes)
-            buffer.force()
-        }
-        val gap = nextWritePositions[page] - buffer.position()
-        if (gap > 0) {
-            buffer.put(ByteArray(gap))
-            buffer.force()
-        }
-        nextWritePositions[page] -= fromOffset - toOffset
-    }
-
-    private fun updateEntryMetaOffsets(page: Int, fromOffset: Int, delta: Int) {
-        for (key in perPageEncryptedKeys[page]) {
-            val entry = entryMetas.getValue(key)
-            if (entry.offset >= fromOffset) {
-                entryMetas[key] = entry.copy(offset = entry.offset - delta)
-            }
-        }
     }
 
     private fun addNewPage() {
@@ -284,16 +262,12 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
         val newBuffer = try {
             channel.map(READ_WRITE, buffers.size * BUFFER_CAPACITY, BUFFER_CAPACITY)
         } catch (e: IOException) {
-            // TODO: Fallback to recovery file (#134)
             throw e
         }
         buffers.add(newBuffer)
         nextWritePositions.add(0)
         perPageEncryptedKeys.add(HashSet())
     }
-
-    @VisibleForTesting
-    internal data class EntryMeta(val page: Int, val offset: Int, val size: Int)
 
     internal companion object {
 
