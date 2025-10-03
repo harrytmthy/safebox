@@ -38,7 +38,6 @@ import com.harrytmthy.safebox.storage.SafeBoxRecoveryBlobStore
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -78,11 +77,9 @@ internal class SafeBoxEngine private constructor(
 
     private val scanScheduled = AtomicBoolean(false)
 
+    private val recoveryScheduled = AtomicBoolean(false)
+
     private var callback: Callback? = null
-
-    private var recoveryJob: Job? = null
-
-    private var recoveryBackoffMs = 1_000L
 
     init {
         launchWithStartingState {
@@ -93,10 +90,6 @@ internal class SafeBoxEngine private constructor(
                     entries += it
                     recoveryEntries += it
                 }
-        }.invokeOnCompletion {
-            if (recoveryEntries.isNotEmpty()) {
-                scheduleRecoveryEntriesWrite()
-            }
         }
     }
 
@@ -215,7 +208,6 @@ internal class SafeBoxEngine private constructor(
                             encryptedValue = encryptedValue,
                         )
                         recoveryEntries[encryptedKey] = encryptedValue
-                        scheduleRecoveryEntriesWrite()
                     }
                 }
                 is Remove -> {
@@ -228,46 +220,32 @@ internal class SafeBoxEngine private constructor(
         }
     }
 
-    private fun scheduleRecoveryEntriesWrite() {
-        if (recoveryJob?.isActive == true) {
-            return
-        }
-        recoveryJob = launchWriteAsync {
-            val fileId = blobStore.getFileName().toBytes()
-            val snapshot = ArrayList(recoveryEntries.entries)
-            var failed = false
-            for ((encryptedKey, encryptedValue) in snapshot) {
-                try {
-                    blobStore.write(encryptedKey, encryptedValue)
-                    recoveryEntries.remove(encryptedKey)
-                } catch (_: Exception) {
-                    failed = true
-                    break
+    private fun scheduleRecoveryEntriesWrite(recoveryBackoffMs: Long) {
+        safeBoxScope.launch(ioDispatcher) {
+            delay(recoveryBackoffMs)
+        }.invokeOnCompletion {
+            val nextBackoffMs = (recoveryBackoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
+            launchWriteAsync(nextBackoffMs) {
+                val fileName = blobStore.getFileName().toBytes()
+                val snapshot = ArrayList(recoveryEntries.entries)
+                val removedKeys = ArrayList<Bytes>()
+                for ((encryptedKey, encryptedValue) in snapshot) {
+                    try {
+                        blobStore.write(encryptedKey, encryptedValue)
+                        recoveryEntries.remove(encryptedKey)
+                        removedKeys += encryptedKey
+                    } catch (_: Exception) {
+                        continue
+                    }
                 }
-            }
-            if (!failed && recoveryEntries.isEmpty()) {
-                recoveryBlobStore.delete(fileId)
-                recoveryBackoffMs = 1_000L
-            }
-        }.apply {
-            invokeOnCompletion { cause ->
-                if (recoveryEntries.isEmpty()) {
-                    return@invokeOnCompletion
-                }
-                if (cause != null) {
-                    recoveryBackoffMs = (recoveryBackoffMs * 2).coerceAtMost(30_000L)
-                }
-                safeBoxScope.launch(ioDispatcher) {
-                    delay(recoveryBackoffMs)
-                    scheduleRecoveryEntriesWrite()
-                }
+                recoveryBlobStore.delete(fileName, *removedKeys.toTypedArray())
             }
         }
     }
 
-    private inline fun launchWithStartingState(crossinline block: suspend () -> Unit): Job {
+    private inline fun launchWithStartingState(crossinline block: suspend () -> Unit) {
         updateState(STARTING)
-        return safeBoxScope.launch(ioDispatcher) {
+        safeBoxScope.launch(ioDispatcher) {
             try {
                 block()
             } finally {
@@ -276,12 +254,15 @@ internal class SafeBoxEngine private constructor(
                     updateState(IDLE)
                 }
             }
+        }.invokeOnCompletion {
+            if (recoveryEntries.isNotEmpty()) {
+                recoveryScheduled.set(true)
+                scheduleRecoveryEntriesWrite(DEFAULT_BACKOFF_MS)
+            }
         }
     }
 
-    private inline fun launchWriteBlocking(
-        crossinline block: suspend () -> Unit,
-    ): Boolean {
+    private inline fun launchWriteBlocking(crossinline block: suspend () -> Unit): Boolean {
         val currentWriteBarrier = CompletableDeferred<Unit>()
         val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
         return runBlocking {
@@ -293,20 +274,36 @@ internal class SafeBoxEngine private constructor(
                 false
             } finally {
                 currentWriteBarrier.complete(Unit)
+                if (recoveryEntries.isNotEmpty() && recoveryScheduled.compareAndSet(false, true)) {
+                    scheduleRecoveryEntriesWrite(DEFAULT_BACKOFF_MS)
+                }
             }
         }
     }
 
-    private inline fun launchWriteAsync(crossinline block: suspend () -> Unit): Job {
+    private inline fun launchWriteAsync(
+        recoveryBackoffMs: Long = DEFAULT_BACKOFF_MS,
+        crossinline block: suspend () -> Unit,
+    ) {
         val currentWriteBarrier = CompletableDeferred<Unit>()
         val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
-        return safeBoxScope.launch(ioDispatcher) {
+        safeBoxScope.launch(ioDispatcher) {
             try {
                 withStateTransition(previousWriteBarrier, block)
             } catch (e: Exception) {
                 Log.e("SafeBox", "Failed to commit changes.", e)
             } finally {
                 currentWriteBarrier.complete(Unit)
+            }
+        }.invokeOnCompletion {
+            if (recoveryBackoffMs == DEFAULT_BACKOFF_MS && recoveryScheduled.get()) {
+                return@invokeOnCompletion
+            }
+            if (recoveryEntries.isNotEmpty()) {
+                recoveryScheduled.set(true)
+                scheduleRecoveryEntriesWrite(recoveryBackoffMs)
+            } else {
+                recoveryScheduled.set(false)
             }
         }
     }
@@ -389,6 +386,10 @@ internal class SafeBoxEngine private constructor(
     }
 
     internal companion object {
+
+        private const val DEFAULT_BACKOFF_MS = 1000L
+
+        private const val MAX_BACKOFF_MS = 30000L
 
         fun create(
             context: Context,
