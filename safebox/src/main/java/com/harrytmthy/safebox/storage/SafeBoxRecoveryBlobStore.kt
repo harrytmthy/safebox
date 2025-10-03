@@ -43,7 +43,7 @@ import java.nio.channels.FileChannel.MapMode.READ_WRITE
  * - `keyBytes: ByteArray`
  * - `valueBytes: ByteArray`
  */
-internal class SafeBoxRecoveryBlobStore private constructor(private val file: File) {
+internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
 
     private val channel = RandomAccessFile(file, "rw").channel
 
@@ -131,13 +131,18 @@ internal class SafeBoxRecoveryBlobStore private constructor(private val file: Fi
     }
 
     internal suspend fun delete(fileName: Bytes) {
+        val encryptedKeys = encryptedKeysByFileName[fileName] ?: return
+        delete(fileName, *encryptedKeys.toTypedArray())
+    }
+
+    internal suspend fun delete(fileName: Bytes, vararg encryptedKeys: Bytes) {
+        if (encryptedKeys.isEmpty() || entryMetasByFileName[fileName].isNullOrEmpty()) {
+            return
+        }
         writeMutex.withLock {
-            encryptedKeysByFileName[fileName]?.forEach { encryptedKey ->
-                val entryMeta = entryMetasByFileName.getOrPut(fileName) { HashMap() }
-                if (!entryMeta.containsKey(encryptedKey)) {
-                    return@forEach
-                }
-                val entry = entryMeta.getValue(encryptedKey)
+            val entryMeta = entryMetasByFileName[fileName] ?: return@withLock
+            for (encryptedKey in encryptedKeys) {
+                val entry = entryMeta[encryptedKey] ?: continue
                 nextWritePosition = buffer.shiftLeft(
                     currentTail = nextWritePosition,
                     fromOffset = entry.offset + entry.size,
@@ -151,8 +156,14 @@ internal class SafeBoxRecoveryBlobStore private constructor(private val file: Fi
                     )
                 }
                 entryMeta -= encryptedKey
+                encryptedKeysByFileName.getValue(fileName).remove(encryptedKey)
             }
-            encryptedKeysByFileName.remove(fileName)
+            if (entryMeta.isEmpty()) {
+                entryMetasByFileName.remove(fileName)
+            }
+            if (encryptedKeysByFileName.getValue(fileName).isEmpty()) {
+                encryptedKeysByFileName.remove(fileName)
+            }
         }
     }
 

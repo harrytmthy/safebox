@@ -180,12 +180,12 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
      * @param encryptedKeys Vararg array of keys to delete.
      */
     internal suspend fun delete(vararg encryptedKeys: Bytes) {
+        if (encryptedKeys.isEmpty() || entryMetas.isEmpty()) {
+            return
+        }
         writeMutex.withLock {
             for (encryptedKey in encryptedKeys) {
-                if (!entryMetas.containsKey(encryptedKey)) {
-                    continue
-                }
-                val entry = entryMetas.getValue(encryptedKey)
+                val entry = entryMetas[encryptedKey] ?: continue
                 nextWritePositions[entry.page] = buffers[entry.page].shiftLeft(
                     currentTail = nextWritePositions[entry.page],
                     fromOffset = entry.offset + entry.size,
