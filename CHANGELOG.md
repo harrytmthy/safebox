@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0-alpha02] - 2025-10-04
+
+### Added
+- **Segmented blob store growth:** Removes the 1 MiB ceiling by mapping multiple fixed-size pages and reusing freed space via compaction. ([#133](https://github.com/harrytmthy/safebox/issues/133))
+- **SafeBoxRecoveryBlobStore:** An append-only recovery file fallback used when a page cannot be allocated. Entries are replayed back into the main store with exponential backoff. ([#134](https://github.com/harrytmthy/safebox/issues/134))
+- **Kotlin BCV and API compatibility guard:** The binary validator is implemented at pipeline & pre-push check to prevent accidental public API breaks. ([#131](https://github.com/harrytmthy/safebox/issues/131))
+
+### Deprecated
+- **SafeBoxState and SafeBoxStateListener:** Removal planned in v1.4. ([#125](https://github.com/harrytmthy/safebox/issues/125))
+
 ## [1.3.0-alpha01] - 2025-09-08
 
 ### Added
