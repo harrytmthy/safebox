@@ -9,17 +9,19 @@ A secure, blazing-fast alternative to `EncryptedSharedPreferences`, designed for
 ## 🚨 EncryptedSharedPreferences is Deprecated
 As of **Jetpack Security 1.1.0-alpha07 (April 9, 2025)**, `EncryptedSharedPreferences` has been deprecated with no official replacement. Without continued support from Google, it may fall behind in cryptography standards, leaving sensitive data exposed.
 
-SafeBox can help you [migrate](docs/MIGRATION.md) easily using the same `SharedPreferences` API.
+SafeBox can help you [migrate](docs/MIGRATION.md) easily using the same `SharedPreferences` API. Since v1.2.0, SafeBox delivers **~184× faster init**, **~50× faster reads**, and **~9× faster writes** than EncryptedSharedPreferences.
 
 ## Why SafeBox?
 
-| Feature                  | SafeBox v1.2.0                    | EncryptedSharedPreferences                |
-|--------------------------|-----------------------------------|-------------------------------------------|
-| Initialization Time      | **0.21ms** (*184.3× faster*)      | 38.7ms                                    |
-| Storage Format           | Memory-mapped binary file         | XML-based per-entry                       |
-| Encryption Method        | ChaCha20-Poly1305 (keys & values) | AES-SIV for keys, AES-GCM for values      |
-| Key Security             | Android Keystore-backed AES-GCM   | Android Keystore MasterKey (*deprecated*) |
-| Customization            | Pluggable cipher providers        | Tightly coupled                           |
+|                | SafeBox                                              | EncryptedSharedPreferences                   |
+|----------------|------------------------------------------------------|----------------------------------------------|
+| Encryption     | **Modern ChaCha20-Poly1305 with secure key vault**   | Older AES setup tied to deprecated MasterKey |
+| Storage format | **Memory-mapped binary file with minimal headers**   | XML text file with tag/attribute overhead    |
+| I/O model      | **New data is tail-appended**                        | New data rewrites the whole XML              |
+| Concurrency    | **Stays smooth on concurrent writes**                | Gets slower on concurrent writes             |
+| Scalability    | **Stable performance on large size**                 | Keeps getting heavier as data grows          |
+| Durability     | **Low-storage failures fallback to a recovery file** | Low-storage failures = data loss             |
+| Customization  | **Cipher providers are replaceable**                 | Ciphers are not customizable                 |
 
 SafeBox uses **deterministic encryption** for reference keys (for fast lookup) and **non-deterministic encryption** for values (for strong security). Both powered by a single ChaCha20 key protected via AES-GCM and stored securely.
 
