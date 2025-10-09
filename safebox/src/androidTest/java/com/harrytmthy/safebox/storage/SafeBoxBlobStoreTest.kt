@@ -347,4 +347,41 @@ class SafeBoxBlobStoreTest {
         assertEquals(1, metaB.page)
         assertEquals(0, metaC.page)
     }
+
+    @Test
+    fun load_withCorruptedTail_shouldZeroFillAndKeepValidEntries() = runTest {
+        val cap = BUFFER_CAPACITY.toInt()
+        val remain = HEADER_SIZE - 2 // leave < HEADER_SIZE bytes to trigger corruption path
+        val keyA = "a".toByteArray().toBytes()
+        val valueA = ByteArray(cap - (HEADER_SIZE + "a".length) - remain)
+        blobStore.write(keyA, valueA)
+
+        // Manually corrupt the tail bytes (non-zero) so loader must repair (zero-fill) them
+        val bin = File(context.noBackupFilesDir, "$fileName.bin")
+        java.io.RandomAccessFile(bin, "rw").use { raf ->
+            raf.seek((cap - remain).toLong())
+            raf.write(byteArrayOf(0x55, 0x55, 0x55, 0x55))
+        }
+        val result = blobStore.loadPersistedEntries()
+        assertEquals(1, result.size)
+        assertContentEquals(valueA, result[keyA])
+
+        // Verify the corrupted region was zero-filled.
+        java.io.RandomAccessFile(bin, "r").use { raf ->
+            raf.seek((cap - remain).toLong())
+            val tail = ByteArray(remain)
+            raf.readFully(tail)
+            assertTrue(tail.all { it == 0.toByte() })
+        }
+
+        // Next write can't fit in the repaired tail (< HEADER_SIZE), so it should roll to page 1
+        val keyB = "b".toByteArray().toBytes()
+        val valueB = byteArrayOf(1)
+        blobStore.write(keyB, valueB)
+        val metaA = blobStore.entryMetas.getValue(keyA)
+        val metaB = blobStore.entryMetas.getValue(keyB)
+        assertEquals(0, metaA.page)
+        assertEquals(1, metaB.page)
+        assertEquals(0, metaB.offset)
+    }
 }

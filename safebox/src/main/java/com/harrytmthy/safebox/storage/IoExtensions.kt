@@ -41,6 +41,13 @@ internal fun MappedByteBuffer.shiftLeft(currentTail: Int, fromOffset: Int, toOff
     return currentTail - (fromOffset - toOffset)
 }
 
+internal fun MappedByteBuffer.repairCorruptedBytes(startOffset: Int) {
+    position(startOffset)
+    val zeros = ByteArray(capacity() - startOffset)
+    put(zeros)
+    force()
+}
+
 internal fun HashMap<Bytes, EntryMeta>.adjustOffsets(
     keys: Iterable<Bytes>,
     fromOffset: Int,
