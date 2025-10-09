@@ -23,6 +23,7 @@ import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.storage.SafeBoxRecoveryBlobStore.Companion.BUFFER_CAPACITY
 import com.harrytmthy.safebox.storage.SafeBoxRecoveryBlobStore.Companion.FILE_NAME
 import com.harrytmthy.safebox.storage.SafeBoxRecoveryBlobStore.Companion.HEADER_SIZE
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,6 +47,10 @@ class SafeBoxRecoveryBlobStoreTest {
 
     @AfterTest
     fun cleanup() {
+        runBlocking {
+            recovery.closeWhenIdle()
+        }
+        SafeBoxRecoveryBlobStore.removeInstance()
         File(context.noBackupFilesDir, "$FILE_NAME.bin").delete()
     }
 
@@ -124,5 +129,42 @@ class SafeBoxRecoveryBlobStoreTest {
         assertFailsWith<IllegalStateException> {
             recovery.write(firstFile, key, tooLargeValue)
         }
+    }
+
+    @Test
+    fun load_withCorruptedTail_shouldZeroFillAndKeepValidEntries() = runTest {
+        val cap = BUFFER_CAPACITY
+        val remain = HEADER_SIZE - 2 // leave < HEADER_SIZE to trigger corruption path
+        val keyA = "a".toBytes()
+        val valueA = ByteArray(cap - (HEADER_SIZE + firstFile.size + keyA.size) - remain)
+        recovery.write(firstFile, keyA, valueA)
+
+        // Corrupt the tail so loader must repair (zero-fill) it
+        val recoveryFile = File(context.noBackupFilesDir, "$FILE_NAME.bin")
+        java.io.RandomAccessFile(recoveryFile, "rw").use { raf ->
+            raf.seek((cap - remain).toLong())
+            raf.write(byteArrayOf(0x55, 0x55, 0x55, 0x55))
+        }
+
+        // Loader should keep valid entries and zero-fill the corrupted tail
+        val result = recovery.loadPersistedEntries(firstFile)
+        assertEquals(1, result.size)
+        assertContentEquals(valueA, result[keyA])
+
+        // Verify zero-fill
+        java.io.RandomAccessFile(recoveryFile, "r").use { raf ->
+            raf.seek((cap - remain).toLong())
+            val tail = ByteArray(remain)
+            raf.readFully(tail)
+            assertTrue(tail.all { it == 0.toByte() })
+        }
+
+        // Recovery file has no paging: there isn't enough room for a new entry.
+        val keyB = "b".toBytes()
+        val valueB = byteArrayOf(1)
+        assertFailsWith<IllegalStateException> {
+            recovery.write(firstFile, keyB, valueB)
+        }
+        recovery.delete(firstFile)
     }
 }

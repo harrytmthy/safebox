@@ -66,18 +66,30 @@ internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
             encryptedKeysByFileName.clear()
             val entries = HashMap<Bytes, ByteArray>()
             var offset = 0
-            while (offset + HEADER_SIZE <= buffer.capacity()) {
-                buffer.position(offset)
-                val fileNameLength = buffer.short.toInt()
-                if (fileNameLength == 0) {
+            while (offset <= buffer.capacity()) {
+                if (offset == buffer.capacity()) {
                     break
                 }
-                val keyLength = buffer.short.toInt()
-                val valueLength = buffer.int
-                val entrySize = HEADER_SIZE + fileNameLength + keyLength + valueLength
-                val fileNameBytes = ByteArray(fileNameLength).also(buffer::get).toBytes()
-                val encryptedKey = ByteArray(keyLength).also(buffer::get).toBytes()
-                val encryptedValue = ByteArray(valueLength).also(buffer::get)
+                if (offset + HEADER_SIZE > buffer.capacity()) {
+                    buffer.repairCorruptedBytes(offset)
+                    break
+                }
+                buffer.position(offset)
+                val fileNameSize = buffer.short.toInt()
+                if (fileNameSize == 0) {
+                    break
+                }
+                val keySize = buffer.short.toInt()
+                val valueSize = buffer.int
+                val tail = offset.toLong() + HEADER_SIZE + fileNameSize + keySize + valueSize
+                if (fileNameSize < 0 || keySize < 0 || valueSize < 0 || tail > buffer.capacity()) {
+                    buffer.repairCorruptedBytes(offset)
+                    break
+                }
+                val fileNameBytes = ByteArray(fileNameSize).also(buffer::get).toBytes()
+                val encryptedKey = ByteArray(keySize).also(buffer::get).toBytes()
+                val encryptedValue = ByteArray(valueSize).also(buffer::get)
+                val entrySize = tail.toInt() - offset
                 if (fileNameBytes == fileName) {
                     entries[encryptedKey] = encryptedValue
                 }
@@ -89,6 +101,15 @@ internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
             nextWritePosition = offset
             entries
         }
+
+    /**
+     * Closes the underlying file channel and releases associated resources.
+     */
+    internal suspend fun closeWhenIdle() {
+        writeMutex.withLock {
+            channel.close()
+        }
+    }
 
     internal suspend fun write(fileName: Bytes, encryptedKey: Bytes, encryptedValue: ByteArray) {
         val entrySize = HEADER_SIZE + fileName.size + encryptedKey.size + encryptedValue.size
@@ -193,6 +214,10 @@ internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
                 }
                 return SafeBoxRecoveryBlobStore(file).also { instance = it }
             }
+        }
+
+        internal fun removeInstance() {
+            instance = null
         }
     }
 }

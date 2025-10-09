@@ -82,33 +82,44 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
             var offset = 0
             while (currentPage < buffers.size) {
                 val buffer = buffers[currentPage]
+                if (offset == buffer.capacity()) {
+                    nextWritePositions[currentPage] = offset
+                    currentPage++
+                    offset = 0
+                    continue
+                }
+                if (offset + HEADER_SIZE > buffer.capacity()) {
+                    buffer.repairCorruptedBytes(offset)
+                    nextWritePositions[currentPage] = offset
+                    currentPage++
+                    offset = 0
+                    continue
+                }
                 buffer.position(offset)
                 val keyLength = buffer.short.toInt()
                 if (keyLength == 0) {
                     nextWritePositions[currentPage] = offset
-                    if (currentPage == buffers.lastIndex) {
-                        break
-                    }
                     currentPage++
                     offset = 0
                     continue
                 }
                 val valueLength = buffer.int
-                val entrySize = HEADER_SIZE + keyLength + valueLength
+                val tail = offset.toLong() + HEADER_SIZE + keyLength + valueLength
+                if (keyLength < 0 || valueLength < 0 || tail > buffer.capacity()) {
+                    buffer.repairCorruptedBytes(offset)
+                    nextWritePositions[currentPage] = offset
+                    currentPage++
+                    offset = 0
+                    continue
+                }
+                val entrySize = tail.toInt() - offset
                 val encryptedKey = ByteArray(keyLength).also(buffer::get).toBytes()
                 val encryptedValue = ByteArray(valueLength).also(buffer::get)
                 entries[encryptedKey] = encryptedValue
                 entryMetas[encryptedKey] = EntryMeta(offset, entrySize, currentPage)
                 perPageEncryptedKeys[currentPage].add(encryptedKey)
                 offset += entrySize
-                when {
-                    offset.toLong() > BUFFER_CAPACITY -> error("SafeBox blob store is corrupted!")
-                    offset.toLong() == BUFFER_CAPACITY -> {
-                        nextWritePositions[currentPage] = offset
-                        currentPage++
-                        offset = 0
-                    }
-                }
+                nextWritePositions[currentPage] = offset
             }
             entries
         }
