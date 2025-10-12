@@ -38,6 +38,7 @@ import com.harrytmthy.safebox.storage.SafeBoxRecoveryBlobStore
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -63,9 +64,15 @@ internal class SafeBoxEngine private constructor(
 
     private val recoveryEntries = HashMap<Bytes, ByteArray>()
 
+    private val pendingActions = LinkedHashMap<String, Action>()
+
+    private val pendingClear = AtomicBoolean(false)
+
     private val byteDecoder = ByteDecoder()
 
     private val updateLock = Any()
+
+    private val pendingUpdateLock = Any()
 
     private val concurrentWriteCount = AtomicInteger(0)
 
@@ -80,6 +87,8 @@ internal class SafeBoxEngine private constructor(
     private val recoveryScheduled = AtomicBoolean(false)
 
     private var callback: Callback? = null
+
+    private var writeDebounceJob: Job? = null
 
     init {
         launchWithStartingState {
@@ -140,8 +149,15 @@ internal class SafeBoxEngine private constructor(
         synchronized(updateLock) {
             updateEntries(snapshot, cleared)
         }
+        writeDebounceJob?.cancel()
+        val (pendingActionsSnapshot, shouldClear) = synchronized(pendingUpdateLock) {
+            val pendingSnapshot = LinkedHashMap(pendingActions)
+            pendingActions.clear()
+            pendingSnapshot += snapshot
+            pendingSnapshot to (pendingClear.getAndSet(false) || cleared)
+        }
         return launchWriteBlocking {
-            applyChanges(snapshot, cleared)
+            applyChanges(pendingActionsSnapshot, shouldClear)
         }
     }
 
@@ -154,8 +170,30 @@ internal class SafeBoxEngine private constructor(
         synchronized(updateLock) {
             updateEntries(snapshot, cleared)
         }
-        launchWriteAsync {
-            applyChanges(snapshot, cleared)
+        synchronized(pendingUpdateLock) {
+            if (cleared) {
+                pendingActions.clear()
+                pendingClear.set(true)
+            }
+            pendingActions += snapshot
+        }
+        writeDebounceJob?.cancel()
+        writeDebounceJob = safeBoxScope.launch(ioDispatcher) {
+            delay(WRITE_DEBOUNCE_TIMEOUT_MS)
+        }.apply {
+            invokeOnCompletion { e ->
+                if (e != null) {
+                    return@invokeOnCompletion
+                }
+                val (pendingActionsSnapshot, shouldClear) = synchronized(pendingUpdateLock) {
+                    val snapshot = LinkedHashMap(pendingActions)
+                    pendingActions.clear()
+                    snapshot to pendingClear.getAndSet(false)
+                }
+                launchWriteAsync {
+                    applyChanges(pendingActionsSnapshot, shouldClear)
+                }
+            }
         }
     }
 
@@ -386,6 +424,8 @@ internal class SafeBoxEngine private constructor(
     }
 
     internal companion object {
+
+        private const val WRITE_DEBOUNCE_TIMEOUT_MS = 100L
 
         private const val DEFAULT_BACKOFF_MS = 1000L
 
