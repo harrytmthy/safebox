@@ -167,7 +167,7 @@ class SafeBoxTest {
         safeBox = createSafeBox()
         var prefs = createSafeBox(legacyAlias)
         safeBox.edit().putInt("key", 1).commit()
-        prefs.edit().putInt("key", 2).apply()
+        prefs.edit().putInt("key", 2).commit()
         engines[fileName]?.closeBlobStoreChannel()
         engines[legacyAlias]?.closeBlobStoreChannel()
         SafeBox.instances.remove(fileName)
