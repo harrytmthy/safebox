@@ -311,6 +311,7 @@ internal class SafeBoxEngine private constructor(
                 Log.e("SafeBox", "Failed to commit changes.", e)
                 false
             } finally {
+                blobStore.flushDirtyPages()
                 currentWriteBarrier.complete(Unit)
                 if (recoveryEntries.isNotEmpty() && recoveryScheduled.compareAndSet(false, true)) {
                     scheduleRecoveryEntriesWrite(DEFAULT_BACKOFF_MS)
@@ -331,6 +332,7 @@ internal class SafeBoxEngine private constructor(
             } catch (e: Exception) {
                 Log.e("SafeBox", "Failed to commit changes.", e)
             } finally {
+                blobStore.flushDirtyPages()
                 currentWriteBarrier.complete(Unit)
             }
         }.invokeOnCompletion {

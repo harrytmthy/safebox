@@ -26,6 +26,7 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel.MapMode.READ_WRITE
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Memory-mapped storage engine used by SafeBox to persist encrypted key-value entries.
@@ -58,6 +59,10 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
     private val writeMutex = Mutex()
 
     private val nextWritePositions = ArrayList<Int>()
+
+    private val dirtyPages = HashSet<Int>()
+
+    private val needsChannelForce = AtomicBoolean(false)
 
     init {
         var pagePosition = 0L
@@ -168,6 +173,7 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
                     fromOffset = entry.offset + entry.size,
                     toOffset = entry.offset,
                 )
+                dirtyPages.add(entry.page)
                 entryMetas.adjustOffsets(
                     keys = perPageEncryptedKeys[entry.page],
                     fromOffset = entry.offset + entry.size,
@@ -208,6 +214,7 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
                     delta = entry.size,
                 )
                 perPageEncryptedKeys[entry.page].remove(encryptedKey)
+                dirtyPages.add(entry.page)
             }
             entryMetas -= encryptedKeys
         }
@@ -221,7 +228,6 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
             for (page in buffers.lastIndex downTo 0) {
                 buffers[page].position(0)
                 buffers[page].put(ByteArray(nextWritePositions[page]))
-                buffers[page].force()
                 if (page > 0) {
                     buffers.removeAt(page)
                     nextWritePositions.removeAt(page)
@@ -233,7 +239,24 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
             }
             entryMetas.clear()
             channel.truncate(BUFFER_CAPACITY)
-            channel.force(true)
+            needsChannelForce.set(true)
+        }
+    }
+
+    internal suspend fun flushDirtyPages() {
+        writeMutex.withLock {
+            if (needsChannelForce.getAndSet(false)) {
+                buffers.forEach { it.force() }
+                channel.force(true)
+                dirtyPages.clear()
+                return@withLock
+            }
+            val dirtyPagesIterator = dirtyPages.iterator()
+            while (dirtyPagesIterator.hasNext()) {
+                val dirtyPage = dirtyPagesIterator.next()
+                buffers[dirtyPage].force()
+                dirtyPagesIterator.remove()
+            }
         }
     }
 
@@ -260,7 +283,7 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
         buffer.putInt(encryptedValue.size)
         buffer.put(encryptedKey.value)
         buffer.put(encryptedValue)
-        buffer.force()
+        dirtyPages.add(page)
         entryMetas[encryptedKey] = EntryMeta(nextWritePositions[page], size, page)
         perPageEncryptedKeys[page].add(encryptedKey)
         nextWritePositions[page] += size
