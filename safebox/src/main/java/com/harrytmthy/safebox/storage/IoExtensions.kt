@@ -31,12 +31,10 @@ internal fun MappedByteBuffer.shiftLeft(currentTail: Int, fromOffset: Int, toOff
         val remainingBytes = ByteArray(remainingSize).apply(::get)
         position(toOffset)
         put(remainingBytes)
-        force()
     }
     val gap = currentTail - position()
     if (gap > 0) {
         put(ByteArray(gap))
-        force()
     }
     return currentTail - (fromOffset - toOffset)
 }
