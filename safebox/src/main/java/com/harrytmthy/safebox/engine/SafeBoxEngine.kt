@@ -149,6 +149,11 @@ internal class SafeBoxEngine private constructor(
         synchronized(updateLock) {
             updateEntries(snapshot, cleared)
         }
+        if (writeDebounceJob?.isActive?.not() ?: true) {
+            return launchWriteBlocking {
+                applyChanges(snapshot, cleared, forceNow = snapshot.size == 1)
+            }
+        }
         writeDebounceJob?.cancel()
         val (pendingActionsSnapshot, shouldClear) = synchronized(pendingUpdateLock) {
             val pendingSnapshot = LinkedHashMap(pendingActions)
@@ -157,7 +162,8 @@ internal class SafeBoxEngine private constructor(
             pendingSnapshot to (pendingClear.getAndSet(false) || cleared)
         }
         return launchWriteBlocking {
-            applyChanges(pendingActionsSnapshot, shouldClear)
+            val forceNow = pendingActionsSnapshot.size == 1 && !shouldClear
+            applyChanges(pendingActionsSnapshot, shouldClear, forceNow)
         }
     }
 
@@ -191,7 +197,7 @@ internal class SafeBoxEngine private constructor(
                     snapshot to pendingClear.getAndSet(false)
                 }
                 launchWriteAsync {
-                    applyChanges(pendingActionsSnapshot, shouldClear)
+                    applyChanges(pendingActionsSnapshot, shouldClear, false)
                 }
             }
         }
@@ -228,7 +234,11 @@ internal class SafeBoxEngine private constructor(
         }
     }
 
-    private suspend fun applyChanges(entries: LinkedHashMap<String, Action>, cleared: Boolean) {
+    private suspend fun applyChanges(
+        entries: LinkedHashMap<String, Action>,
+        cleared: Boolean,
+        forceNow: Boolean,
+    ) {
         if (cleared) {
             blobStore.deleteAll()
         }
@@ -238,7 +248,7 @@ internal class SafeBoxEngine private constructor(
                     val encryptedKey = key.toEncryptedKey()
                     val encryptedValue = action.encodedValue.value.let(valueCipherProvider::encrypt)
                     try {
-                        blobStore.write(encryptedKey, encryptedValue)
+                        blobStore.write(encryptedKey, encryptedValue, forceNow)
                     } catch (_: Exception) {
                         recoveryBlobStore.write(
                             fileName = blobStore.getFileName().toBytes(),
@@ -251,7 +261,7 @@ internal class SafeBoxEngine private constructor(
                 is Remove -> {
                     val encryptedKey = key.toEncryptedKey()
                     if (blobStore.contains(encryptedKey)) {
-                        blobStore.delete(encryptedKey)
+                        blobStore.delete(encryptedKey, forceNow)
                     }
                 }
             }
@@ -269,7 +279,7 @@ internal class SafeBoxEngine private constructor(
                 val removedKeys = ArrayList<Bytes>()
                 for ((encryptedKey, encryptedValue) in snapshot) {
                     try {
-                        blobStore.write(encryptedKey, encryptedValue)
+                        blobStore.write(encryptedKey, encryptedValue, false)
                         recoveryEntries.remove(encryptedKey)
                         removedKeys += encryptedKey
                     } catch (_: Exception) {
