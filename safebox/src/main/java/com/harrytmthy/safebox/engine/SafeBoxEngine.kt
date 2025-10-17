@@ -144,32 +144,29 @@ internal class SafeBoxEngine private constructor(
         if (actions.isEmpty() && !cleared) {
             return true
         }
+        if (writeDebounceJob?.isActive == true) {
+            writeDebounceJob?.cancel()
+            writeDebounceJob = null
+            applyPendingActions()
+        }
         val snapshot = LinkedHashMap(actions)
         actions.clear() // Prevents stale mutations on reused editor instance
         synchronized(updateLock) {
             updateEntries(snapshot, cleared)
         }
-        if (writeDebounceJob?.isActive?.not() ?: true) {
-            return launchWriteBlocking {
-                applyChanges(snapshot, cleared, forceNow = snapshot.size == 1)
-            }
-        }
-        writeDebounceJob?.cancel()
-        val (pendingActionsSnapshot, shouldClear) = synchronized(pendingUpdateLock) {
-            val pendingSnapshot = LinkedHashMap(pendingActions)
-            pendingActions.clear()
-            pendingSnapshot += snapshot
-            pendingSnapshot to (pendingClear.getAndSet(false) || cleared)
-        }
         return launchWriteBlocking {
-            val forceNow = pendingActionsSnapshot.size == 1 && !shouldClear
-            applyChanges(pendingActionsSnapshot, shouldClear, forceNow)
+            val forceNow = snapshot.size == 1 && !cleared
+            applyChanges(snapshot, cleared, forceNow)
         }
     }
 
     fun applyBatch(actions: LinkedHashMap<String, Action>, cleared: Boolean) {
         if (actions.isEmpty() && !cleared) {
             return
+        }
+        if (writeDebounceJob?.isActive == true) {
+            writeDebounceJob?.cancel()
+            writeDebounceJob = null
         }
         val snapshot = LinkedHashMap(actions)
         actions.clear() // Prevents stale mutations on reused editor instance
@@ -183,23 +180,27 @@ internal class SafeBoxEngine private constructor(
             }
             pendingActions += snapshot
         }
-        writeDebounceJob?.cancel()
         writeDebounceJob = safeBoxScope.launch(ioDispatcher) {
             delay(WRITE_DEBOUNCE_TIMEOUT_MS)
         }.apply {
             invokeOnCompletion { e ->
+                writeDebounceJob = null
                 if (e != null) {
                     return@invokeOnCompletion
                 }
-                val (pendingActionsSnapshot, shouldClear) = synchronized(pendingUpdateLock) {
-                    val snapshot = LinkedHashMap(pendingActions)
-                    pendingActions.clear()
-                    snapshot to pendingClear.getAndSet(false)
-                }
-                launchWriteAsync {
-                    applyChanges(pendingActionsSnapshot, shouldClear, false)
-                }
+                applyPendingActions()
             }
+        }
+    }
+
+    private fun applyPendingActions() {
+        val (pendingActionsSnapshot, shouldClear) = synchronized(pendingUpdateLock) {
+            val snapshot = LinkedHashMap(pendingActions)
+            pendingActions.clear()
+            snapshot to pendingClear.getAndSet(false)
+        }
+        launchWriteAsync {
+            applyChanges(pendingActionsSnapshot, shouldClear, false)
         }
     }
 
@@ -385,6 +386,11 @@ internal class SafeBoxEngine private constructor(
     }
 
     internal fun closeBlobStoreChannel() {
+        if (writeDebounceJob?.isActive == true) {
+            writeDebounceJob?.cancel()
+            writeDebounceJob = null
+            applyPendingActions()
+        }
         runBlocking {
             initialReadCompleted.await()
             writeBarrier.get().await()
