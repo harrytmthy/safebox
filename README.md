@@ -55,10 +55,10 @@ Compared to EncryptedSharedPreferences:
 
 ```kotlin
 dependencies {
-    implementation("io.github.harrytmthy:safebox:1.3.0-alpha02")
+    implementation("io.github.harrytmthy:safebox:1.3.0-rc01")
 
     // Optional: standalone crypto helper
-    implementation("io.github.harrytmthy:safebox-crypto:1.3.0-alpha02")
+    implementation("io.github.harrytmthy:safebox-crypto:1.3.0-rc01")
 }
 ```
 

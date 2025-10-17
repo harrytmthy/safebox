@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0-rc01] - 2025-10-17
+
+### Added
+- **SafeBoxEngine batching:** Introduces a debounced, batched `.apply()` pipeline that coalesces rapid edits and deletions before writing to disk. Prevents IO flooding under bursty workloads and keeps `.commit()` isolated from `.apply()` paths for predictable sync behavior. ([#55](https://github.com/harrytmthy/safebox/issues/55), [#156](https://github.com/harrytmthy/safebox/issues/156))
+- **SafeBoxCrypto ByteArray APIs:** Direct `ByteArray` variants to avoid Base64/UTF-8 overhead in binary workflows. ([#152](https://github.com/harrytmthy/safebox/issues/152))
+
+### Performance
+- **Adaptive flush in blob store:** One `force()` per updated page, plus an adaptive strategy that eagerly forces tiny blocking writes while batching page-level flushes for bulk paths. Reduces commit latency for single-entry commits while keeping batched writes fast. ([#150](https://github.com/harrytmthy/safebox/issues/150), [#154](https://github.com/harrytmthy/safebox/issues/154))
+
+### Fixed
+- **Corrupted-byte handling:** Blob store now scans and trims trailing corruption, resuming from a clean boundary to restore durability under partial writes or device shutdowns. ([#148](https://github.com/harrytmthy/safebox/issues/148))
+- **Recovery flow robustness:** Recovery store supports partial delete and exponential backoff scheduling to replay entries safely. ([#143](https://github.com/harrytmthy/safebox/issues/143))
+
+### Docs
+- **Comparison table clarity:** Updated _Why SafeBox?_ section in README. ([#146](https://github.com/harrytmthy/safebox/issues/146))
+
 ## [1.3.0-alpha02] - 2025-10-04
 
 ### Added
