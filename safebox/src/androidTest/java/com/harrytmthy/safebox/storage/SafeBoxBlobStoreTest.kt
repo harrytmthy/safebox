@@ -55,8 +55,8 @@ class SafeBoxBlobStoreTest {
         val firstValue = "123".toByteArray()
         val secondKey = "beta".toByteArray().toBytes()
         val secondValue = "456".toByteArray()
-        blobStore.write(firstKey, firstValue)
-        blobStore.write(secondKey, secondValue)
+        blobStore.write(firstKey, firstValue, false)
+        blobStore.write(secondKey, secondValue, false)
 
         val result = blobStore.loadPersistedEntries()
 
@@ -73,9 +73,9 @@ class SafeBoxBlobStoreTest {
         val secondValue = "456".toByteArray()
         val thirdKey = "pete".toByteArray().toBytes()
         val thirdValue = "789".toByteArray()
-        blobStore.write(firstKey, firstValue)
-        blobStore.write(secondKey, secondValue)
-        blobStore.write(thirdKey, thirdValue)
+        blobStore.write(firstKey, firstValue, false)
+        blobStore.write(secondKey, secondValue, false)
+        blobStore.write(thirdKey, thirdValue, false)
 
         blobStore.delete(firstKey)
 
@@ -95,9 +95,9 @@ class SafeBoxBlobStoreTest {
         val secondValue = "456".toByteArray()
         val thirdKey = "pete".toByteArray().toBytes()
         val thirdValue = "789".toByteArray()
-        blobStore.write(firstKey, firstValue)
-        blobStore.write(secondKey, secondValue)
-        blobStore.write(thirdKey, thirdValue)
+        blobStore.write(firstKey, firstValue, false)
+        blobStore.write(secondKey, secondValue, false)
+        blobStore.write(thirdKey, thirdValue, false)
 
         blobStore.delete(secondKey)
 
@@ -117,9 +117,9 @@ class SafeBoxBlobStoreTest {
         val secondValue = "456".toByteArray()
         val thirdKey = "pete".toByteArray().toBytes()
         val thirdValue = "789".toByteArray()
-        blobStore.write(firstKey, firstValue)
-        blobStore.write(secondKey, secondValue)
-        blobStore.write(thirdKey, thirdValue)
+        blobStore.write(firstKey, firstValue, false)
+        blobStore.write(secondKey, secondValue, false)
+        blobStore.write(thirdKey, thirdValue, false)
 
         blobStore.delete(thirdKey)
 
@@ -137,13 +137,13 @@ class SafeBoxBlobStoreTest {
         val firstValue = "123".toByteArray()
         val secondKey = "beta".toByteArray().toBytes()
         val secondValue = "456".toByteArray()
-        blobStore.write(firstKey, firstValue)
-        blobStore.write(secondKey, secondValue)
+        blobStore.write(firstKey, firstValue, false)
+        blobStore.write(secondKey, secondValue, false)
 
         blobStore.delete(firstKey)
         val thirdKey = "pete".toByteArray().toBytes()
         val thirdValue = "789".toByteArray()
-        blobStore.write(thirdKey, thirdValue)
+        blobStore.write(thirdKey, thirdValue, false)
 
         val result = blobStore.loadPersistedEntries()
         assertEquals(2, result.size)
@@ -161,8 +161,8 @@ class SafeBoxBlobStoreTest {
         val firstValue = "123".toByteArray()
         val secondValue = "456".toByteArray()
 
-        blobStore.write(key, firstValue)
-        blobStore.write(key, secondValue)
+        blobStore.write(key, firstValue, false)
+        blobStore.write(key, secondValue, false)
 
         val result = blobStore.loadPersistedEntries()
         assertEquals(1, result.size)
@@ -176,8 +176,8 @@ class SafeBoxBlobStoreTest {
         val firstValue = "12345".toByteArray()
         val secondValue = "1".toByteArray()
 
-        blobStore.write(key, firstValue)
-        blobStore.write(key, secondValue)
+        blobStore.write(key, firstValue, false)
+        blobStore.write(key, secondValue, false)
 
         val result = blobStore.loadPersistedEntries()
         assertEquals(1, result.size)
@@ -191,8 +191,8 @@ class SafeBoxBlobStoreTest {
         val firstValue = "1".toByteArray()
         val secondValue = "12345".toByteArray()
 
-        blobStore.write(key, firstValue)
-        blobStore.write(key, secondValue)
+        blobStore.write(key, firstValue, false)
+        blobStore.write(key, secondValue, false)
 
         val result = blobStore.loadPersistedEntries()
         assertEquals(1, result.size)
@@ -213,8 +213,8 @@ class SafeBoxBlobStoreTest {
         val valueA = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + "a".length))
         val valueB = ByteArray(HEADER_SIZE + "b".length)
 
-        blobStore.write(keyA, valueA)
-        blobStore.write(keyB, valueB)
+        blobStore.write(keyA, valueA, false)
+        blobStore.write(keyB, valueB, false)
 
         val result = blobStore.loadPersistedEntries()
 
@@ -241,7 +241,7 @@ class SafeBoxBlobStoreTest {
         try {
             repeat(size) {
                 val value = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + it.toString().length))
-                blobStore.write(keys[it], value)
+                blobStore.write(keys[it], value, false)
             }
         } catch (e: IllegalStateException) {
             exception = e
@@ -265,7 +265,7 @@ class SafeBoxBlobStoreTest {
         try {
             repeat(size) {
                 val value = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + it.toString().length))
-                blobStore.write(keys[it], value)
+                blobStore.write(keys[it], value, false)
             }
         } catch (e: IllegalStateException) {
             exception = e
@@ -283,14 +283,14 @@ class SafeBoxBlobStoreTest {
         val fillerKey = "f".toByteArray().toBytes()
 
         val small = ByteArray(10)
-        blobStore.write(key, small)
+        blobStore.write(key, small, false)
 
         // Fill page 0 so only 8 bytes remain
         val filler = ByteArray(cap - (header + "k".length + small.size) - (header + "f".length) - 8)
-        blobStore.write(fillerKey, filler)
+        blobStore.write(fillerKey, filler, false)
 
         val larger = ByteArray(100)
-        blobStore.write(key, larger) // should not fit page 0
+        blobStore.write(key, larger, false) // should not fit page 0
 
         val result = blobStore.loadPersistedEntries()
         assertContentEquals(larger, result[key])
@@ -311,8 +311,8 @@ class SafeBoxBlobStoreTest {
         val valueA = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + "a".length) - 8)
         val valueB = byteArrayOf(0x01)
 
-        blobStore.write(keyA, valueA)
-        blobStore.write(keyB, valueB) // rolls to page 1
+        blobStore.write(keyA, valueA, false)
+        blobStore.write(keyB, valueB, false) // rolls to page 1
 
         blobStore.deleteAll()
 
@@ -330,13 +330,13 @@ class SafeBoxBlobStoreTest {
         val valueA = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + "a".length))
         val valueB = ByteArray(HEADER_SIZE + "b".length)
 
-        blobStore.write(keyA, valueA) // fills page 0 to leave 8 bytes
-        blobStore.write(keyB, valueB) // goes to page 1
+        blobStore.write(keyA, valueA, false) // fills page 0 to leave 8 bytes
+        blobStore.write(keyB, valueB, false) // goes to page 1
 
         blobStore.delete(keyA) // compact page 0, tail moves back
 
         val valueC = ByteArray(64)
-        blobStore.write(keyC, valueC) // should reuse page 0 tail
+        blobStore.write(keyC, valueC, false) // should reuse page 0 tail
 
         val result = blobStore.loadPersistedEntries()
         assertContentEquals(valueB, result[keyB])
@@ -354,7 +354,7 @@ class SafeBoxBlobStoreTest {
         val remain = HEADER_SIZE - 2 // leave < HEADER_SIZE bytes to trigger corruption path
         val keyA = "a".toByteArray().toBytes()
         val valueA = ByteArray(cap - (HEADER_SIZE + "a".length) - remain)
-        blobStore.write(keyA, valueA)
+        blobStore.write(keyA, valueA, false)
 
         // Manually corrupt the tail bytes (non-zero) so loader must repair (zero-fill) them
         val bin = File(context.noBackupFilesDir, "$fileName.bin")
@@ -377,7 +377,7 @@ class SafeBoxBlobStoreTest {
         // Next write can't fit in the repaired tail (< HEADER_SIZE), so it should roll to page 1
         val keyB = "b".toByteArray().toBytes()
         val valueB = byteArrayOf(1)
-        blobStore.write(keyB, valueB)
+        blobStore.write(keyB, valueB, false)
         val metaA = blobStore.entryMetas.getValue(keyA)
         val metaB = blobStore.entryMetas.getValue(keyB)
         assertEquals(0, metaA.page)

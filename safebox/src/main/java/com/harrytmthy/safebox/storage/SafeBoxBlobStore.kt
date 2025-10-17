@@ -60,7 +60,7 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
 
     private val nextWritePositions = ArrayList<Int>()
 
-    private val dirtyPages = HashSet<Int>()
+    private var dirtyPagesMask: Long = 0L
 
     private val needsChannelForce = AtomicBoolean(false)
 
@@ -147,7 +147,7 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
      * @throws IllegalStateException if entry size exceeds the configured page capacity
      * or total page limit is reached.
      */
-    internal suspend fun write(encryptedKey: Bytes, encryptedValue: ByteArray) {
+    internal suspend fun write(encryptedKey: Bytes, encryptedValue: ByteArray, forceNow: Boolean) {
         val entrySize = HEADER_SIZE + encryptedKey.value.size + encryptedValue.size
         if (entrySize > BUFFER_CAPACITY) {
             error("Failed to write entry with size $entrySize (max: $BUFFER_CAPACITY bytes)!")
@@ -173,7 +173,6 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
                     fromOffset = entry.offset + entry.size,
                     toOffset = entry.offset,
                 )
-                dirtyPages.add(entry.page)
                 entryMetas.adjustOffsets(
                     keys = perPageEncryptedKeys[entry.page],
                     fromOffset = entry.offset + entry.size,
@@ -181,9 +180,10 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
                 )
                 if (page != entry.page) {
                     perPageEncryptedKeys[entry.page].remove(encryptedKey)
+                    markDirty(entry.page, forceNow)
                 }
             }
-            writeAtPage(page, encryptedKey, encryptedValue, entrySize)
+            writeAtPage(page, encryptedKey, encryptedValue, entrySize, forceNow)
         }
     }
 
@@ -197,27 +197,49 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
      * @param encryptedKeys Vararg array of keys to delete.
      */
     internal suspend fun delete(vararg encryptedKeys: Bytes) {
-        if (encryptedKeys.isEmpty() || entryMetas.isEmpty()) {
+        if (encryptedKeys.isEmpty()) {
             return
         }
         writeMutex.withLock {
             for (encryptedKey in encryptedKeys) {
-                val entry = entryMetas[encryptedKey] ?: continue
-                nextWritePositions[entry.page] = buffers[entry.page].shiftLeft(
-                    currentTail = nextWritePositions[entry.page],
-                    fromOffset = entry.offset + entry.size,
-                    toOffset = entry.offset,
-                )
-                entryMetas.adjustOffsets(
-                    keys = perPageEncryptedKeys[entry.page],
-                    fromOffset = entry.offset + entry.size,
-                    delta = entry.size,
-                )
-                perPageEncryptedKeys[entry.page].remove(encryptedKey)
-                dirtyPages.add(entry.page)
+                deleteInternal(encryptedKey, false)
             }
-            entryMetas -= encryptedKeys
         }
+    }
+
+    /**
+     * Deletes an entry from the blob storage by their keys.
+     *
+     * For each key, performs an in-page left-shift of the remaining bytes to close the hole,
+     * zero-fills the trailing gap, and adjusts metadata offsets of all subsequent entries in
+     * that page.
+     *
+     * @param encryptedKey The encrypted key to delete.
+     */
+    internal suspend fun delete(encryptedKey: Bytes, forceNow: Boolean) {
+        if (entryMetas.isEmpty()) {
+            return
+        }
+        writeMutex.withLock {
+            deleteInternal(encryptedKey, forceNow)
+        }
+    }
+
+    private fun deleteInternal(encryptedKey: Bytes, forceNow: Boolean) {
+        val entry = entryMetas[encryptedKey] ?: return
+        nextWritePositions[entry.page] = buffers[entry.page].shiftLeft(
+            currentTail = nextWritePositions[entry.page],
+            fromOffset = entry.offset + entry.size,
+            toOffset = entry.offset,
+        )
+        entryMetas.adjustOffsets(
+            keys = perPageEncryptedKeys[entry.page],
+            fromOffset = entry.offset + entry.size,
+            delta = entry.size,
+        )
+        perPageEncryptedKeys[entry.page].remove(encryptedKey)
+        entryMetas.remove(encryptedKey)
+        markDirty(entry.page, forceNow)
     }
 
     /**
@@ -244,19 +266,28 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
     }
 
     internal suspend fun flushDirtyPages() {
+        if (dirtyPagesMask == 0L) {
+            return
+        }
         writeMutex.withLock {
             if (needsChannelForce.getAndSet(false)) {
                 buffers.forEach { it.force() }
                 channel.force(true)
-                dirtyPages.clear()
+                dirtyPagesMask = 0L
                 return@withLock
             }
-            val dirtyPagesIterator = dirtyPages.iterator()
-            while (dirtyPagesIterator.hasNext()) {
-                val dirtyPage = dirtyPagesIterator.next()
-                buffers[dirtyPage].force()
-                dirtyPagesIterator.remove()
+            var mask = dirtyPagesMask
+            if (mask == 0L) {
+                return@withLock
             }
+            while (mask != 0L) {
+                val page = java.lang.Long.numberOfTrailingZeros(mask)
+                if (page < buffers.size) {
+                    buffers[page].force()
+                }
+                mask = mask and (mask - 1)
+            }
+            dirtyPagesMask = 0L
         }
     }
 
@@ -276,14 +307,20 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
         }
     }
 
-    private fun writeAtPage(page: Int, encryptedKey: Bytes, encryptedValue: ByteArray, size: Int) {
+    private fun writeAtPage(
+        page: Int,
+        encryptedKey: Bytes,
+        encryptedValue: ByteArray,
+        size: Int,
+        forceNow: Boolean,
+    ) {
         val buffer = buffers[page]
         buffer.position(nextWritePositions[page])
         buffer.putShort(encryptedKey.value.size.toShort())
         buffer.putInt(encryptedValue.size)
         buffer.put(encryptedKey.value)
         buffer.put(encryptedValue)
-        dirtyPages.add(page)
+        markDirty(page, forceNow)
         entryMetas[encryptedKey] = EntryMeta(nextWritePositions[page], size, page)
         perPageEncryptedKeys[page].add(encryptedKey)
         nextWritePositions[page] += size
@@ -301,6 +338,19 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
         buffers.add(newBuffer)
         nextWritePositions.add(0)
         perPageEncryptedKeys.add(HashSet())
+    }
+
+    private fun markDirty(page: Int, forceNow: Boolean) {
+        if (forceNow) {
+            buffers[page].force()
+            unmarkDirty(page)
+            return
+        }
+        dirtyPagesMask = dirtyPagesMask or (1L shl page)
+    }
+
+    private fun unmarkDirty(page: Int) {
+        dirtyPagesMask = dirtyPagesMask and (1L shl page).inv()
     }
 
     internal companion object {
