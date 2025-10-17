@@ -48,6 +48,15 @@ object SafeBoxCrypto {
     private val safeCipher: SafeCipher = ChaCha20Cipher(deterministic = false)
 
     /**
+     * Creates a new 32-byte secret (raw).
+     *
+     * Anyone with this secret can decrypt data encrypted with it.
+     */
+    fun createSecretBytes(): ByteArray {
+        return SecureRandomProvider.generate(ChaCha20Cipher.KEY_SIZE)
+    }
+
+    /**
      * Creates a new 32-byte secret and returns it as Base64 URL safe.
      *
      * Anyone with this secret can decrypt data encrypted with it.
@@ -58,14 +67,28 @@ object SafeBoxCrypto {
     }
 
     /**
-     * Encrypts [text] using [secret].
+     * Encrypts raw [plaintext] using a raw 32-byte [secret].
      *
-     * - [text] is encoded as UTF-8.
-     * - [secret] must be Base64 URL safe representing a 32-byte key.
-     *
-     * @return Ciphertext as Base64 URL safe.
-     * @throws GeneralSecurityException if encryption fails or inputs are malformed.
+     * @param plaintext The raw bytes to encrypt.
+     * @param secret The 32-byte symmetric key.
+     * @return Ciphertext framed as bytes (IV || ciphertext || tag).
+     * @throws GeneralSecurityException if encryption fails or the inputs are malformed/invalid.
      */
+    @Throws(GeneralSecurityException::class)
+    fun encrypt(plaintext: ByteArray, secret: ByteArray): ByteArray {
+        val key = secret.toSecretKey()
+        return safeCipher.encrypt(plaintext, key)
+    }
+
+    /**
+     * Encrypts [text] encoded as UTF-8 using a Base64 URL-safe [secret].
+     *
+     * @param text The plaintext string to encrypt.
+     * @param secret The Base64 URL-safe encoded 32-byte key.
+     * @return Ciphertext encoded as Base64 URL-safe.
+     * @throws GeneralSecurityException if encryption fails or the secret is malformed/invalid.
+     */
+    @Throws(GeneralSecurityException::class)
     fun encrypt(text: String, secret: String): String {
         val plaintext = text.toByteArray(Charsets.UTF_8)
         val key = decodeBase64(secret).toSecretKey()
@@ -74,14 +97,28 @@ object SafeBoxCrypto {
     }
 
     /**
-     * Decrypts [encryptedText] using [secret] and returns the original UTF-8 string.
+     * Decrypts [ciphertext] using a raw 32-byte [secret].
      *
-     * - [encryptedText] must be Base64 URL safe.
-     * - [secret] must be Base64 URL safe representing a 32-byte key.
-     *
-     * @return The original text.
-     * @throws GeneralSecurityException if decryption fails or inputs are malformed.
+     * @param ciphertext The framed ciphertext bytes (IV || ciphertext || tag).
+     * @param secret The 32-byte symmetric key.
+     * @return The decrypted plaintext bytes.
+     * @throws GeneralSecurityException if decryption fails or the inputs are malformed/invalid.
      */
+    @Throws(GeneralSecurityException::class)
+    fun decrypt(ciphertext: ByteArray, secret: ByteArray): ByteArray {
+        val key = secret.toSecretKey()
+        return safeCipher.decrypt(ciphertext, key)
+    }
+
+    /**
+     * Decrypts [encryptedText] using a Base64 URL-safe [secret].
+     *
+     * @param encryptedText The ciphertext encoded as Base64 URL-safe.
+     * @param secret The Base64 URL-safe encoded 32-byte key.
+     * @return The original plaintext string.
+     * @throws GeneralSecurityException if decryption fails or the inputs are malformed/invalid.
+     */
+    @Throws(GeneralSecurityException::class)
     fun decrypt(encryptedText: String, secret: String): String {
         val ciphertext = decodeBase64(encryptedText)
         val key = decodeBase64(secret).toSecretKey()
@@ -92,11 +129,33 @@ object SafeBoxCrypto {
     /**
      * Encrypts like [encrypt] but returns null on failure.
      */
+    fun encryptOrNull(plaintext: ByteArray, secret: ByteArray): ByteArray? =
+        try {
+            encrypt(plaintext, secret)
+        } catch (e: GeneralSecurityException) {
+            Log.e("SafeBoxCrypto", "Failed to encrypt bytes.", e)
+            null
+        }
+
+    /**
+     * Encrypts like [encrypt] but returns null on failure.
+     */
     fun encryptOrNull(text: String, secret: String): String? =
         try {
             encrypt(text, secret)
         } catch (e: GeneralSecurityException) {
             Log.e("SafeBoxCrypto", "Failed to encrypt text.", e)
+            null
+        }
+
+    /**
+     * Decrypts like [decrypt] but returns null on failure.
+     */
+    fun decryptOrNull(ciphertext: ByteArray, secret: ByteArray): ByteArray? =
+        try {
+            decrypt(ciphertext, secret)
+        } catch (e: GeneralSecurityException) {
+            Log.e("SafeBoxCrypto", "Failed to decrypt bytes.", e)
             null
         }
 
@@ -120,7 +179,7 @@ object SafeBoxCrypto {
     private fun ByteArray.toSecretKey(): SecretKey {
         val mask = MessageDigest.getInstance(DIGEST_SHA256).digest(this)
         return SafeSecretKey(
-            key = this,
+            key = this.copyOf(),
             mask = mask,
             algorithm = ChaCha20Cipher.ALGORITHM,
         )

@@ -19,7 +19,9 @@ package com.harrytmthy.safebox
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.runner.RunWith
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 
 @RunWith(AndroidJUnit4::class)
 class SafeBoxCryptoTest {
@@ -44,5 +46,30 @@ class SafeBoxCryptoTest {
         val text = SafeBoxCrypto.decryptOrNull(encryptedText, secret)
 
         assertEquals(originalText, text)
+    }
+
+    @Test
+    fun decrypt_bytes_shouldReturnOriginalBytes() {
+        // Some pseudo-random payload
+        val original = ByteArray(4096) { i -> (i * 31 and 0xFF).toByte() }
+        val secret = SafeBoxCrypto.createSecretBytes()
+        val encrypted = SafeBoxCrypto.encrypt(original, secret)
+
+        val decrypted = SafeBoxCrypto.decrypt(encrypted, secret)
+
+        assertContentEquals(original, decrypted)
+    }
+
+    @Test
+    fun decryptOrNull_bytes_shouldReturnOriginalBytes() {
+        val original = "binary-\uD83D\uDE80".toByteArray(Charsets.UTF_8)
+        val secret = SafeBoxCrypto.createSecretBytes()
+        val encrypted = SafeBoxCrypto.encryptOrNull(original, secret)
+        assertNotNull(encrypted)
+
+        val decrypted = SafeBoxCrypto.decryptOrNull(encrypted, secret)
+
+        assertNotNull(decrypted)
+        assertContentEquals(original, decrypted)
     }
 }
