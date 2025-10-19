@@ -245,7 +245,7 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
     /**
      * Deletes all data and shrinks the file back to a single page.
      */
-    internal suspend fun deleteAll() {
+    internal suspend fun deleteAll(forceNow: Boolean) {
         writeMutex.withLock {
             for (page in buffers.lastIndex downTo 0) {
                 buffers[page].position(0)
@@ -261,7 +261,13 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
             }
             entryMetas.clear()
             channel.truncate(BUFFER_CAPACITY)
-            needsChannelForce.set(true)
+            if (forceNow) {
+                buffers.forEach { it.force() }
+                channel.force(true)
+                dirtyPagesMask = 0L
+            } else {
+                needsChannelForce.set(true)
+            }
         }
     }
 

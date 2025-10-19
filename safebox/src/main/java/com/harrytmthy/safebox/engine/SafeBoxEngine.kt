@@ -66,7 +66,7 @@ internal class SafeBoxEngine private constructor(
 
     private val pendingActions = LinkedHashMap<String, Action>()
 
-    private val pendingClear = AtomicBoolean(false)
+    private var pendingClear = false
 
     private val byteDecoder = ByteDecoder()
 
@@ -151,12 +151,9 @@ internal class SafeBoxEngine private constructor(
         }
         val snapshot = LinkedHashMap(actions)
         actions.clear() // Prevents stale mutations on reused editor instance
-        synchronized(updateLock) {
-            updateEntries(snapshot, cleared)
-        }
+        updateEntries(snapshot, cleared)
         return launchWriteBlocking {
-            val forceNow = snapshot.size == 1 && !cleared
-            applyChanges(snapshot, cleared, forceNow)
+            applyChanges(snapshot, cleared, true)
         }
     }
 
@@ -170,25 +167,20 @@ internal class SafeBoxEngine private constructor(
         }
         val snapshot = LinkedHashMap(actions)
         actions.clear() // Prevents stale mutations on reused editor instance
-        synchronized(updateLock) {
-            updateEntries(snapshot, cleared)
-        }
+        updateEntries(snapshot, cleared)
         synchronized(pendingUpdateLock) {
             if (cleared) {
                 pendingActions.clear()
-                pendingClear.set(true)
+                pendingClear = true
             }
             pendingActions += snapshot
         }
         writeDebounceJob = safeBoxScope.launch(ioDispatcher) {
             delay(WRITE_DEBOUNCE_TIMEOUT_MS)
+            applyPendingActions()
         }.apply {
-            invokeOnCompletion { e ->
+            invokeOnCompletion {
                 writeDebounceJob = null
-                if (e != null) {
-                    return@invokeOnCompletion
-                }
-                applyPendingActions()
             }
         }
     }
@@ -197,7 +189,8 @@ internal class SafeBoxEngine private constructor(
         val (pendingActionsSnapshot, shouldClear) = synchronized(pendingUpdateLock) {
             val snapshot = LinkedHashMap(pendingActions)
             pendingActions.clear()
-            snapshot to pendingClear.getAndSet(false)
+            val cleared = pendingClear.also { pendingClear = false }
+            snapshot to cleared
         }
         launchWriteAsync {
             applyChanges(pendingActionsSnapshot, shouldClear, false)
@@ -205,30 +198,35 @@ internal class SafeBoxEngine private constructor(
     }
 
     private fun updateEntries(actions: LinkedHashMap<String, Action>, cleared: Boolean) {
-        if (cleared) {
-            entries.clear()
-            if (notifyNullOnClear) {
-                callback?.onEntryChanged(null)
-            }
-        }
-        val modifiedKeys = callback?.let { ArrayList<String>(actions.size) }
-        for ((key, action) in actions) {
-            when (action) {
-                is Put -> {
-                    val encryptedKey = key.toEncryptedKey()
-                    val oldValue = entries[encryptedKey]?.let { valueCipherProvider.tryDecrypt(it) }
-                    val newValue = action.encodedValue.value
-                    if (!newValue.contentEquals(oldValue)) {
-                        entries[encryptedKey] = newValue.let(valueCipherProvider::encrypt)
-                        modifiedKeys?.add(key)
-                    }
-                }
-                is Remove -> {
-                    if (entries.remove(key.toEncryptedKey()) != null) {
-                        modifiedKeys?.add(key)
-                    }
+        val modifiedKeys = synchronized(updateLock) {
+            if (cleared) {
+                entries.clear()
+                if (notifyNullOnClear) {
+                    callback?.onEntryChanged(null)
                 }
             }
+            val modifiedKeys = callback?.let { ArrayList<String>(actions.size) }
+            for ((key, action) in actions) {
+                when (action) {
+                    is Put -> {
+                        val encryptedKey = key.toEncryptedKey()
+                        val oldValue = entries[encryptedKey]?.let {
+                            valueCipherProvider.tryDecrypt(it)
+                        }
+                        val newValue = action.encodedValue.value
+                        if (!newValue.contentEquals(oldValue)) {
+                            entries[encryptedKey] = newValue.let(valueCipherProvider::encrypt)
+                            modifiedKeys?.add(key)
+                        }
+                    }
+                    is Remove -> {
+                        if (entries.remove(key.toEncryptedKey()) != null) {
+                            modifiedKeys?.add(key)
+                        }
+                    }
+                }
+            }
+            modifiedKeys
         }
         for (index in (modifiedKeys?.size ?: return) - 1 downTo 0) {
             callback?.onEntryChanged(modifiedKeys[index])
@@ -241,7 +239,7 @@ internal class SafeBoxEngine private constructor(
         forceNow: Boolean,
     ) {
         if (cleared) {
-            blobStore.deleteAll()
+            blobStore.deleteAll(forceNow)
         }
         for ((key, action) in entries) {
             when (action) {
