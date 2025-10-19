@@ -314,7 +314,7 @@ class SafeBoxBlobStoreTest {
         blobStore.write(keyA, valueA, false)
         blobStore.write(keyB, valueB, false) // rolls to page 1
 
-        blobStore.deleteAll()
+        blobStore.deleteAll(true)
 
         val bin = File(context.noBackupFilesDir, "$fileName.bin")
         assertEquals(BUFFER_CAPACITY, bin.length())
