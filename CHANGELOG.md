@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2025-10-20
+
+### Added
+- **Crypto-only module:** New `:safebox-crypto` published as a standalone artifact. ([#110](https://github.com/harrytmthy/safebox/issues/110))
+- **SafeBoxCrypto helper & ByteArray APIs:** String-in/string-out helper plus raw `ByteArray` encrypt/decrypt to avoid Base64/UTF-8 overhead. ([#121](https://github.com/harrytmthy/safebox/issues/121), [#152](https://github.com/harrytmthy/safebox/issues/152))
+- **Segmented blob store growth:** Removes the 1 MiB ceiling via multi-page mapping with compaction/reuse of freed space. ([#133](https://github.com/harrytmthy/safebox/issues/133))
+- **Recovery journal:** Append-only `SafeBoxRecoveryBlobStore` for ENOSPC/low-storage conditions with exponential-backoff replay. ([#134](https://github.com/harrytmthy/safebox/issues/134))
+- **Kotlin BCV & API guard:** Binary compatibility validator + pre-push API check. ([#131](https://github.com/harrytmthy/safebox/issues/131))
+
+### Changed
+- **Public API cleanup:** Removed alias-based parameters. Creation now manages aliases internally. ([#111](https://github.com/harrytmthy/safebox/issues/111))
+- **Fully synchronous commits:** `.commit()` now guarantees durability of all affected pages + channel before returning. ([#161](https://github.com/harrytmthy/safebox/issues/161))
+
+### Performance
+- **Batched `.apply()` pipeline:** Debounced batching that coalesces rapid edits/deletes, reducing I/O floods during bursts while keeping `.commit()` semantics predictable. ([#55](https://github.com/harrytmthy/safebox/issues/55), [#156](https://github.com/harrytmthy/safebox/issues/156))
+- **Lower contention in crypto:** Isolated ChaCha providers so key/value ciphers don’t block each other. ([#117](https://github.com/harrytmthy/safebox/issues/117))
+- **Adaptive flush in blob store:** One `force()` per updated page with adaptive behavior—eager for tiny blocking writes, batched for multi-page updates. ([#150](https://github.com/harrytmthy/safebox/issues/150), [#154](https://github.com/harrytmthy/safebox/issues/154))
+- **Smaller dependency footprint:** Switch to `bcprov-jdk15on` and minimal keep rules, making minified apps ≈9.5× smaller than before ([#115](https://github.com/harrytmthy/safebox/issues/115))
+
+### Fixed
+- **Read latency regression:** Restored fast read path performance discovered during RC testing. ([#161](https://github.com/harrytmthy/safebox/issues/161))
+- **Single DEK per file:** Both ciphers for a file reliably resolve the same DEK (per-file locking + lazy load). ([#119](https://github.com/harrytmthy/safebox/issues/119))
+- **Corrupted-byte handling:** Scan/trim trailing corruption and resume from a clean boundary after partial writes/shutdowns. ([#148](https://github.com/harrytmthy/safebox/issues/148))
+- **R8 errors:** Remove LDAP/X.509 pulls and missing-class warnings while keeping ChaCha20-Poly1305 intact. ([#115](https://github.com/harrytmthy/safebox/issues/115))
+- **Recovery flow robustness:** Partial delete in recovery store + exponential backoff replay. ([#143](https://github.com/harrytmthy/safebox/issues/143))
+
+### Docs
+- **Why SafeBox table:** Clearer comparison vs `EncryptedSharedPreferences`. ([#146](https://github.com/harrytmthy/safebox/issues/146))
+
+### Deprecated
+- **SafeBoxState** and **SafeBoxStateListener:** Removal planned in v1.4. ([#125](https://github.com/harrytmthy/safebox/issues/125))
+
 ## [1.3.0-rc01] - 2025-10-17
 
 ### Added

@@ -55,10 +55,10 @@ Compared to EncryptedSharedPreferences:
 
 ```kotlin
 dependencies {
-    implementation("io.github.harrytmthy:safebox:1.3.0-rc01")
+    implementation("io.github.harrytmthy:safebox:1.3.0")
 
     // Optional: standalone crypto helper
-    implementation("io.github.harrytmthy:safebox-crypto:1.3.0-rc01")
+    implementation("io.github.harrytmthy:safebox-crypto:1.3.0")
 }
 ```
 
@@ -145,6 +145,39 @@ If you only need the helper, use the standalone `:safebox-crypto` module.
 Average times measured over **100 samples** on an emulator:
 
 <details open>
+
+<summary>📊 v1.3.0 Benchmark</summary>
+
+![Get Performance](docs/charts/v1_3_get_performance_chart.png)
+
+![Put Performance](docs/charts/v1_3_put_performance_chart.png)
+
+![Put then Commit Performance](docs/charts/v1_3_put_and_commit_performance_chart.png)
+
+| Operation                   | SafeBox v1.3.0               | EncryptedSharedPreferences |
+|-----------------------------|------------------------------|----------------------------|
+| Initialization              | **0.19ms** (*201.1× faster*) | 38.7ms                     |
+| Get 1 entry                 | **0.01ms** (*76.9× faster*)  | 0.50ms                     |
+| Get 3 entries               | **0.02ms** (*68.5× faster*)  | 1.27ms                     |
+| Get 5 entries               | **0.03ms** (*76.8× faster*)  | 2.25ms                     |
+| Get 10 entries              | **0.06ms** (*66.4× faster*)  | 4.07ms                     |
+| Put 1 entry, then commit    | **0.17ms** (*7.8× faster*)   | 1.31ms                     |
+| Put 3 entries, then commit  | **0.46ms** (*4.7× faster*)   | 2.16ms                     |
+| Put 5 entries, then commit  | **0.73ms** (*4.5× faster*)   | 3.32ms                     |
+| Put 10 entries, then commit | **1.46ms** (*4.3× faster*)   | 6.28ms                     |
+
+Even on **multiple single commits**, SafeBox remains faster:
+
+| Operation                 | SafeBox v1.3.0              | EncryptedSharedPreferences |
+|---------------------------|-----------------------------|----------------------------|
+| Commit 3 single entries   | **0.52ms** (*9.5× faster*)  | 4.90ms                     |
+| Commit 5 single entries   | **0.85ms** (*8.2× faster*)  | 6.91ms                     |
+| Commit 10 single entries  | **1.71ms** (*6.6× faster*)  | 11.27ms                    |
+| Commit 100 single entries | **16.51ms** (*4.3× faster*) | 71.34ms                    |
+
+</details>
+
+<details>
 
 <summary>📊 v1.2.0 Benchmark</summary>
 
