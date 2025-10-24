@@ -28,7 +28,6 @@ import com.harrytmthy.safebox.engine.SafeBoxEngine
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.extensions.toEncodedByteArray
 import com.harrytmthy.safebox.factory.SafeBoxCryptoFactory.createChaCha20Providers
-import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.strategy.ValueFallbackStrategy
 import kotlinx.coroutines.CoroutineDispatcher
@@ -181,13 +180,11 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
          * - The ChaCha20 secret is encrypted with AES-GCM via `SecureRandomKeyProvider`.
          *
          * This method is idempotent per [fileName]. Repeated calls return the existing instance.
-         * If [stateListener] is non-null, it replaces the current listener. All other parameters
-         * are ignored when the instance already exists.
+         * All parameters are ignored when the instance already exists.
          *
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
-         * @param stateListener The listener to observe instance-bound state transitions
          *
          * @return A fully configured [SafeBox] instance
          */
@@ -198,7 +195,6 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
             context: Context,
             fileName: String,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-            stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
             val (keyCipherProvider, valueCipherProvider) = createChaCha20Providers(
                 context = context,
@@ -210,17 +206,15 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
                 keyCipherProvider = keyCipherProvider,
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
-                stateListener = stateListener,
             )
-            return createInternal(fileName, stateListener, engine)
+            return createInternal(fileName, engine)
         }
 
         /**
          * Creates a [SafeBox] instance using a custom [CipherProvider] implementation.
          *
          * This method is idempotent per [fileName]. Repeated calls return the existing instance.
-         * If [stateListener] is non-null, it replaces the current listener. All other parameters
-         * are ignored when the instance already exists.
+         * All parameters are ignored when the instance already exists.
          *
          * This is useful for testing or advanced use cases where you want to control
          * the encryption mechanism directly.
@@ -230,7 +224,6 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
          * @param keyCipherProvider Cipher used for encrypting and decrypting keys
          * @param valueCipherProvider Cipher used for encrypting and decrypting values
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
-         * @param stateListener The listener to observe instance-bound state transitions
          *
          * @return A [SafeBox] instance with the provided [CipherProvider]
          */
@@ -243,7 +236,6 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
             keyCipherProvider: CipherProvider,
             valueCipherProvider: CipherProvider,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-            stateListener: SafeBoxStateListener? = null,
         ): SafeBox {
             val engine = SafeBoxEngine.create(
                 context = context,
@@ -251,25 +243,14 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
                 keyCipherProvider = keyCipherProvider,
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
-                stateListener = stateListener,
             )
-            return createInternal(fileName, stateListener, engine)
+            return createInternal(fileName, engine)
         }
 
-        internal fun createInternal(
-            fileName: String,
-            stateListener: SafeBoxStateListener?,
-            engine: SafeBoxEngine,
-        ): SafeBox {
-            instances[fileName]?.let { safeBox ->
-                stateListener?.let(safeBox.engine::setStateListener)
-                return safeBox
-            }
+        internal fun createInternal(fileName: String, engine: SafeBoxEngine): SafeBox {
+            instances[fileName]?.let { return it }
             return synchronized(instances) {
-                instances[fileName]?.let { safeBox ->
-                    stateListener?.let(safeBox.engine::setStateListener)
-                    return safeBox
-                }
+                instances[fileName]?.let { return it }
                 SafeBox(engine).also { instances[fileName] = it }
             }
         }
