@@ -25,7 +25,6 @@ import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_KEY_ALIAS
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
 import com.harrytmthy.safebox.engine.SafeBoxEngine
 import com.harrytmthy.safebox.factory.SafeBoxCryptoFactory
-import com.harrytmthy.safebox.state.SafeBoxStateListener
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -415,7 +414,6 @@ class SafeBoxTest {
     private fun createSafeBox(
         fileName: String = this.fileName,
         ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(),
-        stateListener: SafeBoxStateListener? = null,
     ): SafeBox {
         val (keyCipherProvider, valueCipherProvider) = SafeBoxCryptoFactory.createChaCha20Providers(
             context = context,
@@ -427,9 +425,8 @@ class SafeBoxTest {
             keyCipherProvider,
             valueCipherProvider,
             ioDispatcher,
-            stateListener,
         )
         engines[fileName] = engine
-        return SafeBox.createInternal(fileName, stateListener, engine)
+        return SafeBox.createInternal(fileName, engine)
     }
 }

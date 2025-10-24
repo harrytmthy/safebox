@@ -26,12 +26,6 @@ import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.decoder.ByteDecoder
 import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
-import com.harrytmthy.safebox.state.SafeBoxGlobalStateObserver
-import com.harrytmthy.safebox.state.SafeBoxState
-import com.harrytmthy.safebox.state.SafeBoxState.IDLE
-import com.harrytmthy.safebox.state.SafeBoxState.STARTING
-import com.harrytmthy.safebox.state.SafeBoxState.WRITING
-import com.harrytmthy.safebox.state.SafeBoxStateListener
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.storage.SafeBoxBlobStore
 import com.harrytmthy.safebox.storage.SafeBoxRecoveryBlobStore
@@ -46,7 +40,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.AEADBadTagException
 
@@ -56,7 +49,6 @@ internal class SafeBoxEngine private constructor(
     private val keyCipherProvider: CipherProvider,
     private val valueCipherProvider: CipherProvider,
     private val ioDispatcher: CoroutineDispatcher,
-    private var stateListener: SafeBoxStateListener?,
     private val notifyNullOnClear: Boolean,
 ) {
 
@@ -73,8 +65,6 @@ internal class SafeBoxEngine private constructor(
     private val updateLock = Any()
 
     private val pendingUpdateLock = Any()
-
-    private val concurrentWriteCount = AtomicInteger(0)
 
     private val initialReadCompleted = CompletableDeferred<Unit>()
 
@@ -104,10 +94,6 @@ internal class SafeBoxEngine private constructor(
 
     fun setCastFailureStrategy(fallbackStrategy: ValueFallbackStrategy) {
         byteDecoder.setCastFailureStrategy(fallbackStrategy)
-    }
-
-    fun setStateListener(stateListener: SafeBoxStateListener?) {
-        this.stateListener = stateListener
     }
 
     fun setCallback(callback: Callback?) {
@@ -291,15 +277,11 @@ internal class SafeBoxEngine private constructor(
     }
 
     private inline fun launchWithStartingState(crossinline block: suspend () -> Unit) {
-        updateState(STARTING)
         safeBoxScope.launch(ioDispatcher) {
             try {
                 block()
             } finally {
                 initialReadCompleted.complete(Unit)
-                if (concurrentWriteCount.get() == 0) {
-                    updateState(IDLE)
-                }
             }
         }.invokeOnCompletion {
             if (recoveryEntries.isNotEmpty()) {
@@ -314,7 +296,11 @@ internal class SafeBoxEngine private constructor(
         val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
         return runBlocking {
             try {
-                withStateTransition(previousWriteBarrier, block)
+                initialReadCompleted.await()
+                previousWriteBarrier.await()
+                writeMutex.withLock {
+                    block()
+                }
                 true
             } catch (e: Exception) {
                 Log.e("SafeBox", "Failed to commit changes.", e)
@@ -337,7 +323,11 @@ internal class SafeBoxEngine private constructor(
         val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
         safeBoxScope.launch(ioDispatcher) {
             try {
-                withStateTransition(previousWriteBarrier, block)
+                initialReadCompleted.await()
+                previousWriteBarrier.await()
+                writeMutex.withLock {
+                    block()
+                }
             } catch (e: Exception) {
                 Log.e("SafeBox", "Failed to commit changes.", e)
             } finally {
@@ -353,26 +343,6 @@ internal class SafeBoxEngine private constructor(
                 scheduleRecoveryEntriesWrite(recoveryBackoffMs)
             } else {
                 recoveryScheduled.set(false)
-            }
-        }
-    }
-
-    private suspend inline fun withStateTransition(
-        previousWriteBarrier: CompletableDeferred<Unit>,
-        crossinline block: suspend () -> Unit,
-    ) {
-        initialReadCompleted.await()
-        if (concurrentWriteCount.incrementAndGet() == 1) {
-            updateState(WRITING)
-        }
-        try {
-            previousWriteBarrier.await()
-            writeMutex.withLock {
-                block()
-            }
-        } finally {
-            if (concurrentWriteCount.decrementAndGet() == 0) {
-                updateState(IDLE)
             }
         }
     }
@@ -394,11 +364,6 @@ internal class SafeBoxEngine private constructor(
             writeBarrier.get().await()
             blobStore.closeWhenIdle()
         }
-    }
-
-    private fun updateState(newState: SafeBoxState) {
-        stateListener?.onStateChanged(newState)
-        SafeBoxGlobalStateObserver.updateState(blobStore.getFileName(), newState)
     }
 
     private fun scanAndRemoveDeadEntries() {
@@ -453,7 +418,6 @@ internal class SafeBoxEngine private constructor(
             keyCipherProvider: CipherProvider,
             valueCipherProvider: CipherProvider,
             ioDispatcher: CoroutineDispatcher,
-            stateListener: SafeBoxStateListener?,
         ): SafeBoxEngine {
             val blobStore = SafeBoxBlobStore.create(context, fileName)
             val appOnRPlus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
@@ -464,7 +428,6 @@ internal class SafeBoxEngine private constructor(
                 keyCipherProvider = keyCipherProvider,
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
-                stateListener = stateListener,
                 notifyNullOnClear = appOnRPlus && appTargetsRPlus,
             )
         }
