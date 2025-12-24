@@ -1,5 +1,5 @@
 [versions]
-androidGradlePlugin = "8.11.2"
+androidGradlePlugin = "8.13.1"
 androidxActivity = "1.10.1"
 androidxAnnotation = "1.9.1"
 androidxComposeBom = "2025.04.01"
@@ -13,15 +13,10 @@ androidxTracing = "1.3.0"
 androidxWindowManager = "1.3.0"
 bouncyCastle = "1.70"
 dokka = "2.0.0"
-junit4 = "4.13.2"
-kotlin = "2.2.10"
+kotlin = "2.3.0"
 kotlinxCoroutines = "1.10.2"
 kotlinBinaryCompatibility = "0.18.1"
-ksp = "2.2.10-2.0.2"
 mavenPublishPlugin = "0.32.0"
-protobuf = "4.29.2"
-protobufPlugin = "0.9.4"
-safebox = "1.1.0-alpha01"
 timber = "5.0.1"
 
 [libraries]
@@ -48,9 +43,6 @@ kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.re
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
-protobuf-kotlin-lite = { group = "com.google.protobuf", name = "protobuf-kotlin-lite", version.ref = "protobuf" }
-protobuf-protoc = { group = "com.google.protobuf", name = "protoc", version.ref = "protobuf" }
-safebox = { group = "io.github.harrytmthy", name = "safebox", version.ref = "safebox" }
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 
 # Dependencies of build-logic
@@ -65,9 +57,7 @@ android-library = { id = "com.android.library", version.ref = "androidGradlePlug
 compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublishPlugin" }
-protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }
 kotlin-binary-compatibility = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "kotlinBinaryCompatibility" }
 
 # Convention Plugins
