@@ -24,12 +24,12 @@ plugins {
 
 android {
     namespace = "com.harrytmthy.safebox.demo"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.harrytmthy.safebox.demo"
         minSdk = 23
-        targetSdk = 35
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
