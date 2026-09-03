@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import com.android.build.gradle.LibraryExtension
+import com.android.build.api.dsl.LibraryExtension
 import org.gradle.api.JavaVersion
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -31,7 +31,7 @@ class AndroidLibraryConventionPlugin : Plugin<Project> {
             apply(plugin = "com.android.library")
             apply(plugin = "org.jetbrains.kotlin.android")
             extensions.configure<LibraryExtension> {
-                compileSdk = 36
+                compileSdk = 37
                 defaultConfig {
                     minSdk = 23
                     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
