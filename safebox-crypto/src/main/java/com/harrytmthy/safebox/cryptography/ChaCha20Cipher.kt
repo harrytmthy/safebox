@@ -23,7 +23,6 @@ import org.bouncycastle.jcajce.spec.AEADParameterSpec
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
-import java.security.Security
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 
@@ -49,9 +48,7 @@ internal class ChaCha20Cipher(private val deterministic: Boolean) : SafeCipher {
         try {
             Cipher.getInstance(TRANSFORMATION, BouncyCastleProvider.PROVIDER_NAME)
         } catch (_: GeneralSecurityException) {
-            Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
-            Security.addProvider(BouncyCastleProvider())
-            Cipher.getInstance(TRANSFORMATION, BouncyCastleProvider.PROVIDER_NAME)
+            Cipher.getInstance(TRANSFORMATION, bundledBouncyCastleProvider)
         }
     }
 
@@ -86,5 +83,6 @@ internal class ChaCha20Cipher(private val deterministic: Boolean) : SafeCipher {
         internal const val TRANSFORMATION = "ChaCha20-Poly1305"
         private const val IV_SIZE = 12
         private const val MAC_SIZE_BITS = 128
+        private val bundledBouncyCastleProvider by lazy { BouncyCastleProvider() }
     }
 }
