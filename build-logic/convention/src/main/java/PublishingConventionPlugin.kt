@@ -25,7 +25,7 @@ class PublishingConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
             group = "io.github.harrytmthy"
-            version = "1.3.0"
+            version = "1.3.1"
 
             pluginManager.apply("org.jetbrains.dokka")
             pluginManager.apply("com.vanniktech.maven.publish")
