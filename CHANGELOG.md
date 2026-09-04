@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-09-05
+
+### Fixed
+- **Bouncy Castle provider isolation:** Avoided replacing the process-wide `BC` provider during ChaCha20-Poly1305 initialization. SafeBox now uses its bundled provider privately as a fallback, preserving unrelated security services registered by the host application or platform. ([#172](https://github.com/harrytmthy/safebox/issues/172), [#175](https://github.com/harrytmthy/safebox/pull/175))
+
 ## [1.3.0] - 2025-10-20
 
 ### Added
