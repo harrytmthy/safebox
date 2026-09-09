@@ -49,6 +49,22 @@ class SafeBoxBlobStoreTest {
         File(context.noBackupFilesDir, "$fileName.bin").delete()
     }
 
+    /**
+     * Reopens the backing file in a fresh store and hands its persisted entries to [assertions].
+     *
+     * Reclamation bugs only show up here: [SafeBoxBlobStore.loadPersistedEntries] on the live
+     * store reads its own mapped buffers, so it cannot tell whether the truncated file on disk
+     * is still well-formed.
+     */
+    private suspend fun assertReopenedStore(assertions: (Map<Bytes, ByteArray>) -> Unit) {
+        val reopened = SafeBoxBlobStore.create(context, fileName)
+        try {
+            assertions(reopened.loadPersistedEntries())
+        } finally {
+            reopened.closeWhenIdle()
+        }
+    }
+
     @Test
     fun loadAll_shouldReturnWrittenEntries() = runTest {
         val firstKey = "alpha".toByteArray().toBytes()
@@ -319,6 +335,155 @@ class SafeBoxBlobStoreTest {
         val bin = File(context.noBackupFilesDir, "$fileName.bin")
         assertEquals(BUFFER_CAPACITY, bin.length())
         assertTrue(blobStore.entryMetas.isEmpty())
+    }
+
+    @Test
+    fun deleteFromLastPage_shouldReclaimEmptyPageAfterFlush() = runTest {
+        val keyA = "a".toByteArray().toBytes()
+        val keyB = "b".toByteArray().toBytes()
+        val valueA = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + "a".length))
+        val valueB = byteArrayOf(0x01)
+        val regrownValueB = byteArrayOf(0x02)
+
+        blobStore.write(keyA, valueA, false)
+        blobStore.write(keyB, valueB, false)
+        blobStore.flushDirtyPages()
+
+        val bin = File(context.noBackupFilesDir, "$fileName.bin")
+        assertEquals(BUFFER_CAPACITY * 2, bin.length())
+
+        blobStore.delete(keyB, true)
+        blobStore.flushDirtyPages()
+
+        assertEquals(BUFFER_CAPACITY, bin.length())
+        assertContentEquals(valueA, blobStore.loadPersistedEntries()[keyA])
+        assertReopenedStore { entries ->
+            assertEquals(1, entries.size)
+            assertContentEquals(valueA, entries[keyA])
+        }
+
+        blobStore.write(keyB, regrownValueB, false)
+        blobStore.flushDirtyPages()
+
+        assertEquals(BUFFER_CAPACITY * 2, bin.length())
+        assertEquals(1, blobStore.entryMetas.getValue(keyB).page)
+        assertContentEquals(regrownValueB, blobStore.loadPersistedEntries()[keyB])
+        // Page 1 has now been mapped, dropped, truncated away and mapped again at the same
+        // offset while the first mapping may still be awaiting GC. Read it back from a fresh
+        // store to confirm the regrown page persists its own content and not the old bytes.
+        assertReopenedStore { entries ->
+            assertEquals(2, entries.size)
+            assertContentEquals(valueA, entries[keyA])
+            assertContentEquals(regrownValueB, entries[keyB])
+        }
+    }
+
+    @Test
+    fun overwriteFromLastPage_shouldReclaimEmptyPageAfterFlush() = runTest {
+        val fillerKey = "f".toByteArray().toBytes()
+        val movedKey = "m".toByteArray().toBytes()
+        val filler = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + "f".length))
+        val originalValue = ByteArray(64)
+        val replacementValue = byteArrayOf(0x01)
+
+        blobStore.write(fillerKey, filler, false)
+        blobStore.write(movedKey, originalValue, false)
+        blobStore.flushDirtyPages()
+
+        blobStore.delete(fillerKey)
+        blobStore.flushDirtyPages()
+
+        val bin = File(context.noBackupFilesDir, "$fileName.bin")
+        assertEquals(BUFFER_CAPACITY * 2, bin.length())
+
+        blobStore.write(movedKey, replacementValue, true)
+        blobStore.flushDirtyPages()
+
+        assertEquals(BUFFER_CAPACITY, bin.length())
+        assertEquals(0, blobStore.entryMetas.getValue(movedKey).page)
+        assertContentEquals(replacementValue, blobStore.loadPersistedEntries()[movedKey])
+        assertReopenedStore { entries ->
+            assertEquals(1, entries.size)
+            assertContentEquals(replacementValue, entries[movedKey])
+        }
+    }
+
+    @Test
+    fun deleteFromConsecutiveLastPages_shouldReclaimAllEmptyPagesAfterFlush() = runTest {
+        val keys = List(3) { it.toString().toByteArray().toBytes() }
+        keys.forEachIndexed { index, key ->
+            val value = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + index.toString().length))
+            blobStore.write(key, value, false)
+        }
+        blobStore.flushDirtyPages()
+
+        val bin = File(context.noBackupFilesDir, "$fileName.bin")
+        assertEquals(BUFFER_CAPACITY * 3, bin.length())
+
+        blobStore.delete(keys[1], keys[2])
+        blobStore.flushDirtyPages()
+
+        assertEquals(BUFFER_CAPACITY, bin.length())
+        val survivor = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + "0".length))
+        assertContentEquals(survivor, blobStore.loadPersistedEntries()[keys[0]])
+        assertFalse(blobStore.contains(keys[1]))
+        assertFalse(blobStore.contains(keys[2]))
+        assertReopenedStore { entries ->
+            assertEquals(1, entries.size)
+            assertContentEquals(survivor, entries[keys[0]])
+        }
+    }
+
+    /**
+     * Files written before tail reclamation existed can already carry an empty trailing page.
+     * Opening one must reclaim it even though nothing in this session ever emptied a page, so
+     * the reclaim scan cannot be gated on state accumulated since the store was constructed.
+     */
+    @Test
+    fun flush_onFileWithPreexistingEmptyTailPage_shouldReclaim() = runTest {
+        val keyA = "a".toByteArray().toBytes()
+        val keyB = "b".toByteArray().toBytes()
+        val valueA = ByteArray(BUFFER_CAPACITY.toInt() - (HEADER_SIZE + "a".length))
+
+        blobStore.write(keyA, valueA, false)
+        blobStore.write(keyB, byteArrayOf(0x01), false)
+        blobStore.flushDirtyPages()
+        blobStore.delete(keyB, true) // forceNow empties page 1 without leaving a dirty bit
+        blobStore.closeWhenIdle() // closed before flushing, so the file keeps its second page
+
+        val bin = File(context.noBackupFilesDir, "$fileName.bin")
+        assertEquals(BUFFER_CAPACITY * 2, bin.length())
+
+        val reopened = SafeBoxBlobStore.create(context, fileName)
+        try {
+            assertContentEquals(valueA, reopened.loadPersistedEntries()[keyA])
+            reopened.flushDirtyPages()
+
+            assertEquals(BUFFER_CAPACITY, bin.length())
+        } finally {
+            reopened.closeWhenIdle()
+        }
+        assertReopenedStore { entries ->
+            assertEquals(1, entries.size)
+            assertContentEquals(valueA, entries[keyA])
+        }
+    }
+
+    @Test
+    fun flush_withoutPendingChanges_shouldKeepFileIntact() = runTest {
+        val key = "a".toByteArray().toBytes()
+        val value = ByteArray(64)
+        blobStore.write(key, value, false)
+        blobStore.flushDirtyPages()
+
+        val bin = File(context.noBackupFilesDir, "$fileName.bin")
+        val lengthAfterWrite = bin.length()
+
+        blobStore.flushDirtyPages()
+        blobStore.flushDirtyPages()
+
+        assertEquals(lengthAfterWrite, bin.length())
+        assertContentEquals(value, blobStore.loadPersistedEntries()[key])
     }
 
     @Test

@@ -295,7 +295,7 @@ internal class SafeBoxEngine private constructor(
         val currentWriteBarrier = CompletableDeferred<Unit>()
         val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
         return runBlocking {
-            try {
+            var committed = try {
                 initialReadCompleted.await()
                 previousWriteBarrier.await()
                 writeMutex.withLock {
@@ -305,13 +305,19 @@ internal class SafeBoxEngine private constructor(
             } catch (e: Exception) {
                 Log.e("SafeBox", "Failed to commit changes.", e)
                 false
-            } finally {
+            }
+            try {
                 blobStore.flushDirtyPages()
+            } catch (e: Exception) {
+                Log.e("SafeBox", "Failed to flush pending changes.", e)
+                committed = false
+            } finally {
                 currentWriteBarrier.complete(Unit)
                 if (recoveryEntries.isNotEmpty() && recoveryScheduled.compareAndSet(false, true)) {
                     scheduleRecoveryEntriesWrite(DEFAULT_BACKOFF_MS)
                 }
             }
+            committed
         }
     }
 
@@ -331,8 +337,13 @@ internal class SafeBoxEngine private constructor(
             } catch (e: Exception) {
                 Log.e("SafeBox", "Failed to commit changes.", e)
             } finally {
-                blobStore.flushDirtyPages()
-                currentWriteBarrier.complete(Unit)
+                try {
+                    blobStore.flushDirtyPages()
+                } catch (e: Exception) {
+                    Log.e("SafeBox", "Failed to flush pending changes.", e)
+                } finally {
+                    currentWriteBarrier.complete(Unit)
+                }
             }
         }.invokeOnCompletion {
             if (recoveryBackoffMs == DEFAULT_BACKOFF_MS && recoveryScheduled.get()) {

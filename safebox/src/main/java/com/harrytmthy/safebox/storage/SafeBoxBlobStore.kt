@@ -271,29 +271,57 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
         }
     }
 
+    /**
+     * Forces pending changes to disk and reclaims consecutive empty pages from the file tail.
+     *
+     * Every step is ordered so a failure leaves state the next flush can still make progress on:
+     * - Dirty pages are forced first, including any dirty page about to be discarded. Their bytes
+     *   were already zeroed by [shiftLeft], so should the truncation below be lost to a crash,
+     *   the old-length file reads back with an empty tail instead of resurrecting deleted entries.
+     * - The file is truncated *before* its pages leave [buffers]. Nothing here can establish
+     *   what a throwing `channel.truncate` left on disk; this ordering only avoids the known
+     *   bad case of shrinking the in-memory layout for a truncation that may not have happened.
+     * - [dirtyPagesMask] and [needsChannelForce] are cleared only once the calls they stand for
+     *   return, so an interrupted flush repeats that work instead of dropping the obligation.
+     *
+     * A normal return means the mappings marked dirty were forced, and that a reclaimed length
+     * was truncated and its metadata forced. It is not a general durability barrier: a flush
+     * with nothing outstanding issues no I/O, and page growth from [addNewPage] is not fsynced
+     * on its own.
+     *
+     * Pages dropped here stay mapped until the GC frees them, which is safe only because nothing
+     * reads a page once it leaves [buffers]. Never retain a reference to a dropped buffer.
+     */
     internal suspend fun flushDirtyPages() {
-        if (dirtyPagesMask == 0L) {
-            return
-        }
         writeMutex.withLock {
-            if (needsChannelForce.getAndSet(false)) {
+            if (needsChannelForce.get()) {
                 buffers.forEach { it.force() }
-                channel.force(true)
-                dirtyPagesMask = 0L
-                return@withLock
-            }
-            var mask = dirtyPagesMask
-            if (mask == 0L) {
-                return@withLock
-            }
-            while (mask != 0L) {
-                val page = java.lang.Long.numberOfTrailingZeros(mask)
-                if (page < buffers.size) {
-                    buffers[page].force()
+            } else {
+                var mask = dirtyPagesMask
+                while (mask != 0L) {
+                    val page = mask.countTrailingZeroBits()
+                    if (page < buffers.size) {
+                        buffers[page].force()
+                    }
+                    mask = mask and (mask - 1)
                 }
-                mask = mask and (mask - 1)
             }
             dirtyPagesMask = 0L
+            val retainedPages = retainedPageCount()
+            if (retainedPages < buffers.size) {
+                channel.truncate(retainedPages * BUFFER_CAPACITY)
+                while (buffers.size > retainedPages) {
+                    val page = buffers.lastIndex
+                    buffers.removeAt(page)
+                    nextWritePositions.removeAt(page)
+                    perPageEncryptedKeys.removeAt(page)
+                }
+                needsChannelForce.set(true)
+            }
+            if (needsChannelForce.get()) {
+                channel.force(true)
+                needsChannelForce.set(false)
+            }
         }
     }
 
@@ -344,6 +372,29 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
         buffers.add(newBuffer)
         nextWritePositions.add(0)
         perPageEncryptedKeys.add(HashSet())
+    }
+
+    /**
+     * Counts the pages the file must keep, trimming consecutive empty tail pages but never
+     * page 0. Pure by design: the caller truncates before acting on the result.
+     *
+     * Reclamation is optional and runs inside a finalization path, so a desynced parallel
+     * collection returns "keep everything" rather than throwing or, worse, truncating away a
+     * page that metadata still claims holds entries.
+     */
+    private fun retainedPageCount(): Int {
+        if (buffers.size != nextWritePositions.size || buffers.size != perPageEncryptedKeys.size) {
+            return buffers.size
+        }
+        var retained = buffers.size
+        while (
+            retained > 1 &&
+            nextWritePositions[retained - 1] == 0 &&
+            perPageEncryptedKeys[retained - 1].isEmpty()
+        ) {
+            retained--
+        }
+        return retained
     }
 
     private fun markDirty(page: Int, forceNow: Boolean) {
