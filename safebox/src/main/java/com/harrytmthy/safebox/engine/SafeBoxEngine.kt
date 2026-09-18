@@ -19,6 +19,7 @@ package com.harrytmthy.safebox.engine
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.harrytmthy.safebox.SafeBox.Action
 import com.harrytmthy.safebox.SafeBox.Action.Put
 import com.harrytmthy.safebox.SafeBox.Action.Remove
@@ -54,7 +55,10 @@ internal class SafeBoxEngine private constructor(
 
     private val entries: MutableMap<Bytes, ByteArray> = ConcurrentHashMap()
 
-    private val recoveryEntries = HashMap<Bytes, ByteArray>()
+    // Null means the primary mutation succeeded and only journal retirement remains.
+    private val recoveryEntries = HashMap<Bytes, ByteArray?>()
+
+    private val fileNameBytes = blobStore.getFileName().toBytes()
 
     private val pendingActions = LinkedHashMap<String, Action>()
 
@@ -83,7 +87,7 @@ internal class SafeBoxEngine private constructor(
     init {
         launchWithStartingState {
             entries += blobStore.loadPersistedEntries()
-            recoveryBlobStore.loadPersistedEntries(blobStore.getFileName().toBytes())
+            recoveryBlobStore.loadPersistedEntries(fileNameBytes)
                 .takeIf { it.isNotEmpty() }
                 ?.let {
                     entries += it
@@ -225,32 +229,65 @@ internal class SafeBoxEngine private constructor(
         forceNow: Boolean,
     ) {
         if (cleared) {
-            blobStore.deleteAll(forceNow)
+            val supersedes = recoveryEntries.isNotEmpty()
+            blobStore.deleteAll(forceNow || supersedes)
+            if (supersedes) {
+                discardRecoveryEntries()
+            }
         }
         for ((key, action) in entries) {
             when (action) {
                 is Put -> {
                     val encryptedKey = key.toEncryptedKey()
                     val encryptedValue = action.encodedValue.value.let(valueCipherProvider::encrypt)
+                    val supersedes = hasRecoveryEntry(encryptedKey)
                     try {
-                        blobStore.write(encryptedKey, encryptedValue, forceNow)
+                        blobStore.write(encryptedKey, encryptedValue, forceNow || supersedes)
                     } catch (_: Exception) {
                         recoveryBlobStore.write(
-                            fileName = blobStore.getFileName().toBytes(),
+                            fileName = fileNameBytes,
                             encryptedKey = encryptedKey,
                             encryptedValue = encryptedValue,
+                            forceNow = false,
                         )
+                        // Keep mapped recovery data tracked even if its flush fails.
                         recoveryEntries[encryptedKey] = encryptedValue
+                        recoveryBlobStore.flushPendingChanges()
+                        continue
+                    }
+                    if (supersedes) {
+                        discardRecoveryEntry(encryptedKey)
                     }
                 }
                 is Remove -> {
                     val encryptedKey = key.toEncryptedKey()
+                    val supersedes = hasRecoveryEntry(encryptedKey)
                     if (blobStore.contains(encryptedKey)) {
-                        blobStore.delete(encryptedKey, forceNow)
+                        blobStore.delete(encryptedKey, forceNow || supersedes)
+                    }
+                    if (supersedes) {
+                        discardRecoveryEntry(encryptedKey)
                     }
                 }
             }
         }
+    }
+
+    private fun hasRecoveryEntry(encryptedKey: Bytes): Boolean =
+        recoveryEntries.isNotEmpty() && recoveryEntries.containsKey(encryptedKey)
+
+    private suspend fun discardRecoveryEntry(encryptedKey: Bytes) {
+        recoveryEntries[encryptedKey] = null
+        recoveryBlobStore.delete(fileNameBytes, encryptedKey)
+        recoveryEntries.remove(encryptedKey)
+    }
+
+    private suspend fun discardRecoveryEntries() {
+        for (entry in recoveryEntries.entries) {
+            entry.setValue(null)
+        }
+        recoveryBlobStore.delete(fileNameBytes)
+        recoveryEntries.clear()
     }
 
     private fun scheduleRecoveryEntriesWrite(recoveryBackoffMs: Long) {
@@ -259,20 +296,38 @@ internal class SafeBoxEngine private constructor(
         }.invokeOnCompletion {
             val nextBackoffMs = (recoveryBackoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
             launchWriteAsync(nextBackoffMs) {
-                val fileName = blobStore.getFileName().toBytes()
-                val snapshot = ArrayList(recoveryEntries.entries)
-                val removedKeys = ArrayList<Bytes>()
-                for ((encryptedKey, encryptedValue) in snapshot) {
-                    try {
-                        blobStore.write(encryptedKey, encryptedValue, false)
-                        recoveryEntries.remove(encryptedKey)
-                        removedKeys += encryptedKey
-                    } catch (_: Exception) {
-                        continue
-                    }
-                }
-                recoveryBlobStore.delete(fileName, *removedKeys.toTypedArray())
+                replayRecoveryEntries()
             }
+        }
+    }
+
+    @VisibleForTesting
+    internal suspend fun replayRecoveryEntries() {
+        recoveryBlobStore.flushPendingChanges()
+        val snapshot = ArrayList(recoveryEntries.entries)
+        val replayedKeys = ArrayList<Bytes>()
+        for ((encryptedKey, encryptedValue) in snapshot) {
+            if (encryptedValue == null) {
+                discardRecoveryEntry(encryptedKey)
+                continue
+            }
+            try {
+                blobStore.write(encryptedKey, encryptedValue, false)
+                replayedKeys += encryptedKey
+            } catch (_: Exception) {
+                continue
+            }
+        }
+        if (replayedKeys.isEmpty()) {
+            return
+        }
+        blobStore.flushDirtyPages()
+        for (encryptedKey in replayedKeys) {
+            recoveryEntries[encryptedKey] = null
+        }
+        recoveryBlobStore.delete(fileNameBytes, *replayedKeys.toTypedArray())
+        for (encryptedKey in replayedKeys) {
+            recoveryEntries.remove(encryptedKey)
         }
     }
 
@@ -429,13 +484,15 @@ internal class SafeBoxEngine private constructor(
             keyCipherProvider: CipherProvider,
             valueCipherProvider: CipherProvider,
             ioDispatcher: CoroutineDispatcher,
+            recoveryBlobStore: SafeBoxRecoveryBlobStore =
+                SafeBoxRecoveryBlobStore.getOrCreate(context),
         ): SafeBoxEngine {
             val blobStore = SafeBoxBlobStore.create(context, fileName)
             val appOnRPlus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
             val appTargetsRPlus = context.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.R
             return SafeBoxEngine(
                 blobStore = blobStore,
-                recoveryBlobStore = SafeBoxRecoveryBlobStore.getOrCreate(context),
+                recoveryBlobStore = recoveryBlobStore,
                 keyCipherProvider = keyCipherProvider,
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,

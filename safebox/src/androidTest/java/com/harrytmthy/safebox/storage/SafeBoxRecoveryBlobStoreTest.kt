@@ -28,6 +28,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.io.IOException
 import kotlin.test.AfterTest
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -64,9 +65,9 @@ class SafeBoxRecoveryBlobStoreTest {
         val secondValueForFirstFile = "FIRST_FILE_VALUE_2".toByteArray()
         val firstValueForSecondFile = "SECOND_FILE_VALUE_1".toByteArray()
 
-        recovery.write(firstFile, firstKeyForFirstFile, firstValueForFirstFile)
-        recovery.write(secondFile, firstKeyForSecondFile, firstValueForSecondFile)
-        recovery.write(firstFile, secondKeyForFirstFile, secondValueForFirstFile)
+        recovery.write(firstFile, firstKeyForFirstFile, firstValueForFirstFile, forceNow = true)
+        recovery.write(secondFile, firstKeyForSecondFile, firstValueForSecondFile, forceNow = true)
+        recovery.write(firstFile, secondKeyForFirstFile, secondValueForFirstFile, forceNow = true)
 
         val firstFileEntries = recovery.loadPersistedEntries(firstFile)
         val secondFileEntries = recovery.loadPersistedEntries(secondFile)
@@ -88,8 +89,8 @@ class SafeBoxRecoveryBlobStoreTest {
         val smallValue = "s".toByteArray()
         val largerValue = ByteArray(128) { 7 }
 
-        recovery.write(firstFile, key, smallValue)
-        recovery.write(firstFile, key, largerValue)
+        recovery.write(firstFile, key, smallValue, forceNow = true)
+        recovery.write(firstFile, key, largerValue, forceNow = true)
 
         val entries = recovery.loadPersistedEntries(firstFile)
         assertEquals(1, entries.size)
@@ -105,8 +106,8 @@ class SafeBoxRecoveryBlobStoreTest {
         val valueInFirstFile = byteArrayOf(1, 2, 3)
         val valueInSecondFile = byteArrayOf(9)
 
-        recovery.write(firstFile, keyInFirstFile, valueInFirstFile)
-        recovery.write(secondFile, keyInSecondFile, valueInSecondFile)
+        recovery.write(firstFile, keyInFirstFile, valueInFirstFile, forceNow = true)
+        recovery.write(secondFile, keyInSecondFile, valueInSecondFile, forceNow = true)
 
         recovery.delete(firstFile)
 
@@ -127,7 +128,7 @@ class SafeBoxRecoveryBlobStoreTest {
         val tooLargeValue = ByteArray(maxValueSize + 1)
 
         assertFailsWith<IllegalStateException> {
-            recovery.write(firstFile, key, tooLargeValue)
+            recovery.write(firstFile, key, tooLargeValue, forceNow = true)
         }
     }
 
@@ -137,7 +138,7 @@ class SafeBoxRecoveryBlobStoreTest {
         val remain = HEADER_SIZE - 2 // leave < HEADER_SIZE to trigger corruption path
         val keyA = "a".toBytes()
         val valueA = ByteArray(cap - (HEADER_SIZE + firstFile.size + keyA.size) - remain)
-        recovery.write(firstFile, keyA, valueA)
+        recovery.write(firstFile, keyA, valueA, forceNow = true)
 
         // Corrupt the tail so loader must repair (zero-fill) it
         val recoveryFile = File(context.noBackupFilesDir, "$FILE_NAME.bin")
@@ -163,8 +164,165 @@ class SafeBoxRecoveryBlobStoreTest {
         val keyB = "b".toBytes()
         val valueB = byteArrayOf(1)
         assertFailsWith<IllegalStateException> {
-            recovery.write(firstFile, keyB, valueB)
+            recovery.write(firstFile, keyB, valueB, forceNow = true)
         }
         recovery.delete(firstFile)
+    }
+
+    @Test
+    fun delete_file_afterForceFailure_shouldRetryRetirementForce() = runTest {
+        assertFailedDeletionIsRetried { store, _ -> store.delete(firstFile) }
+    }
+
+    @Test
+    fun delete_key_afterForceFailure_shouldRetryRetirementForce() = runTest {
+        assertFailedDeletionIsRetried { store, key -> store.delete(firstFile, key) }
+    }
+
+    @Test
+    fun delete_emptyKeys_afterForceFailure_shouldRetryRetirementForce() = runTest {
+        assertFailedDeletionIsRetried { store, _ ->
+            store.delete(firstFile, *emptyArray<Bytes>())
+        }
+    }
+
+    @Test
+    fun write_replacementForceFailure_thenDelete_shouldPreserveOtherFile() = runTest {
+        withForceFailureStore { fixture ->
+            val firstKey = "a".toBytes()
+            val secondKey = "b".toBytes()
+            val secondValue = ByteArray(32) { 7 }
+            fixture.store.write(firstFile, firstKey, byteArrayOf(1, 2), forceNow = true)
+            fixture.store.write(secondFile, secondKey, secondValue, forceNow = true)
+
+            fixture.failForce = true
+            assertFailsWith<IOException> {
+                fixture.store.write(firstFile, firstKey, ByteArray(64) { 9 }, forceNow = true)
+            }
+            fixture.failForce = false
+            // Reloading here would rebuild the indexes and hide stale replacement offsets.
+            fixture.store.delete(firstFile, firstKey)
+
+            val reopened = fixture.reopen()
+            assertTrue(reopened.loadPersistedEntries(firstFile).isEmpty())
+            val remaining = reopened.loadPersistedEntries(secondFile)
+            assertEquals(1, remaining.size)
+            assertContentEquals(secondValue, remaining[secondKey])
+        }
+    }
+
+    @Test
+    fun write_newEntryForceFailure_thenDelete_shouldNotLeaveUntrackedRecord() = runTest {
+        withForceFailureStore { fixture ->
+            val firstKey = "a".toBytes()
+            val secondKey = "b".toBytes()
+            val secondValue = byteArrayOf(4, 5, 6)
+            fixture.store.write(secondFile, secondKey, secondValue, forceNow = true)
+
+            fixture.failForce = true
+            assertFailsWith<IOException> {
+                fixture.store.write(firstFile, firstKey, ByteArray(64) { 9 }, forceNow = true)
+            }
+            fixture.failForce = false
+            fixture.store.delete(firstFile, firstKey)
+
+            val reopened = fixture.reopen()
+            assertTrue(reopened.loadPersistedEntries(firstFile).isEmpty())
+            val remaining = reopened.loadPersistedEntries(secondFile)
+            assertEquals(1, remaining.size)
+            assertContentEquals(secondValue, remaining[secondKey])
+        }
+    }
+
+    @Test
+    fun write_newEntryForceFailure_thenAppend_shouldPreserveBothMappedRecords() = runTest {
+        withForceFailureStore { fixture ->
+            val firstKey = "a".toBytes()
+            val secondKey = "b".toBytes()
+            val firstValue = ByteArray(64) { 9 }
+            val secondValue = byteArrayOf(4, 5, 6)
+            fixture.failForce = true
+            assertFailsWith<IOException> {
+                fixture.store.write(firstFile, firstKey, firstValue, forceNow = true)
+            }
+            fixture.failForce = false
+            // This successful write forces the earlier mapped record as well.
+            fixture.store.write(secondFile, secondKey, secondValue, forceNow = true)
+
+            val reopened = fixture.reopen()
+            val firstEntries = reopened.loadPersistedEntries(firstFile)
+            val secondEntries = reopened.loadPersistedEntries(secondFile)
+            assertEquals(1, firstEntries.size)
+            assertEquals(1, secondEntries.size)
+            assertContentEquals(firstValue, firstEntries[firstKey])
+            assertContentEquals(secondValue, secondEntries[secondKey])
+        }
+    }
+
+    private suspend fun assertFailedDeletionIsRetried(
+        retryDelete: suspend (SafeBoxRecoveryBlobStore, Bytes) -> Unit,
+    ) {
+        withForceFailureStore { fixture ->
+            val firstKey = "a".toBytes()
+            val secondKey = "b".toBytes()
+            val secondValue = byteArrayOf(4, 5, 6)
+            fixture.store.write(firstFile, firstKey, byteArrayOf(1, 2, 3), forceNow = true)
+            fixture.store.write(secondFile, secondKey, secondValue, forceNow = true)
+            val initialAttempts = fixture.forceAttempts
+
+            fixture.failForce = true
+            assertFailsWith<IOException> { fixture.store.delete(firstFile, firstKey) }
+            assertEquals(initialAttempts + 1, fixture.forceAttempts)
+            assertFailsWith<IOException> { retryDelete(fixture.store, firstKey) }
+            assertEquals(initialAttempts + 2, fixture.forceAttempts)
+
+            fixture.failForce = false
+            retryDelete(fixture.store, firstKey)
+            assertTrue(fixture.forceAttempts > initialAttempts + 2)
+            val reopened = fixture.reopen()
+            assertTrue(reopened.loadPersistedEntries(firstFile).isEmpty())
+            val remaining = reopened.loadPersistedEntries(secondFile)
+            assertEquals(1, remaining.size)
+            assertContentEquals(secondValue, remaining[secondKey])
+        }
+    }
+
+    private suspend fun withForceFailureStore(block: suspend (ForceFailureStore) -> Unit) {
+        val fixture = ForceFailureStore(context)
+        try {
+            block(fixture)
+        } finally {
+            fixture.close()
+        }
+    }
+
+    private class ForceFailureStore(context: Context) {
+
+        private val file = File.createTempFile("safebox-recovery-force-", ".bin", context.cacheDir)
+
+        var forceAttempts = 0
+            private set
+
+        var failForce = false
+
+        var store = openStore()
+            private set
+
+        private fun openStore() = SafeBoxRecoveryBlobStore.create(file) {
+            forceAttempts++
+            if (failForce) {
+                throw IOException("Injected recovery force failure")
+            }
+        }
+
+        suspend fun reopen(): SafeBoxRecoveryBlobStore {
+            store.closeWhenIdle()
+            return openStore().also { store = it }
+        }
+
+        suspend fun close() {
+            store.closeWhenIdle()
+            file.delete()
+        }
     }
 }

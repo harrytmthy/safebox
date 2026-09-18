@@ -26,14 +26,8 @@ import java.io.RandomAccessFile
 import java.nio.channels.FileChannel.MapMode.READ_WRITE
 
 /**
- * Append-only recovery journal used when the primary blob store cannot allocate space (e.g. ENOSPC
- * or mapping failure). Each record carries the target SafeBox file identity so multiple SafeBox
- * instances can share the same recovery file safely.
- *
- * **Append-only semantics:** writes never happen in place. New records are appended to the tail.
- *
- * **Compaction on delete(file):** when draining a file's records into the main blob store succeeds,
- * this journal compacts (left-shifts) remaining bytes and updates offsets for later records.
+ * Shared, fixed-capacity recovery journal. Each record identifies its owning SafeBox file.
+ * Replacement and deletion compact the remaining records.
  *
  * **Layout per entry:**
  * - `fileNameLength: Short`
@@ -43,7 +37,10 @@ import java.nio.channels.FileChannel.MapMode.READ_WRITE
  * - `keyBytes: ByteArray`
  * - `valueBytes: ByteArray`
  */
-internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
+internal class SafeBoxRecoveryBlobStore private constructor(
+    file: File,
+    private val beforeForce: (() -> Unit)? = null,
+) {
 
     private val channel = RandomAccessFile(file, "rw").channel
 
@@ -55,11 +52,10 @@ internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
 
     private val writeMutex = Mutex()
 
+    private var pendingForce = false
+
     private var nextWritePosition = 0
 
-    /**
-     * Scans the journal and returns all entries belonging to [fileName].
-     */
     internal suspend fun loadPersistedEntries(fileName: Bytes): Map<Bytes, ByteArray> =
         writeMutex.withLock {
             entryMetasByFileName.clear()
@@ -102,27 +98,29 @@ internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
             entries
         }
 
-    /**
-     * Closes the underlying file channel and releases associated resources.
-     */
     internal suspend fun closeWhenIdle() {
         writeMutex.withLock {
             channel.close()
         }
     }
 
-    internal suspend fun write(fileName: Bytes, encryptedKey: Bytes, encryptedValue: ByteArray) {
+    internal suspend fun write(
+        fileName: Bytes,
+        encryptedKey: Bytes,
+        encryptedValue: ByteArray,
+        forceNow: Boolean,
+    ) {
         val entrySize = HEADER_SIZE + fileName.size + encryptedKey.size + encryptedValue.size
         if (entrySize > BUFFER_CAPACITY) {
             error("Failed to write entry with size $entrySize (max: $BUFFER_CAPACITY bytes)!")
         }
         writeMutex.withLock {
-            val entryMeta = entryMetasByFileName.getOrPut(fileName) { HashMap() }
-            val entry = entryMeta[encryptedKey]
+            val entry = entryMetasByFileName[fileName]?.get(encryptedKey)
             val prevSize = entry?.size ?: 0
             if (nextWritePosition - prevSize + entrySize > BUFFER_CAPACITY) {
                 error("Failed to write entry. Not enough buffer capacity.")
             }
+            pendingForce = true
             if (entry != null) {
                 nextWritePosition = buffer.shiftLeft(
                     currentTail = nextWritePosition,
@@ -144,26 +142,51 @@ internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
             buffer.put(fileName.value)
             buffer.put(encryptedKey.value)
             buffer.put(encryptedValue)
-            buffer.force()
-            entryMeta[encryptedKey] = EntryMeta(nextWritePosition, entrySize)
+            entryMetasByFileName.getOrPut(fileName) { HashMap() }[encryptedKey] =
+                EntryMeta(nextWritePosition, entrySize)
             encryptedKeysByFileName.getOrPut(fileName) { HashSet() }.add(encryptedKey)
             nextWritePosition += entrySize
+            if (forceNow) {
+                forcePendingChangesLocked()
+            }
+        }
+    }
+
+    // Metadata follows mapped bytes. A failed force leaves only persistence uncertain.
+    private fun forcePendingChangesLocked() {
+        if (!pendingForce) {
+            return
+        }
+        beforeForce?.invoke()
+        buffer.force()
+        pendingForce = false
+    }
+
+    internal suspend fun flushPendingChanges() {
+        writeMutex.withLock {
+            forcePendingChangesLocked()
         }
     }
 
     internal suspend fun delete(fileName: Bytes) {
-        val encryptedKeys = encryptedKeysByFileName[fileName] ?: return
-        delete(fileName, *encryptedKeys.toTypedArray())
+        writeMutex.withLock {
+            val encryptedKeys = encryptedKeysByFileName[fileName]?.toTypedArray() ?: emptyArray()
+            deleteEntries(fileName, encryptedKeys)
+        }
     }
 
     internal suspend fun delete(fileName: Bytes, vararg encryptedKeys: Bytes) {
-        if (encryptedKeys.isEmpty() || entryMetasByFileName[fileName].isNullOrEmpty()) {
-            return
-        }
         writeMutex.withLock {
-            val entryMeta = entryMetasByFileName[fileName] ?: return@withLock
+            deleteEntries(fileName, encryptedKeys)
+        }
+    }
+
+    private fun deleteEntries(fileName: Bytes, encryptedKeys: Array<out Bytes>) {
+        val entryMeta = entryMetasByFileName[fileName]
+        if (entryMeta != null) {
             for (encryptedKey in encryptedKeys) {
                 val entry = entryMeta[encryptedKey] ?: continue
+                pendingForce = true
                 nextWritePosition = buffer.shiftLeft(
                     currentTail = nextWritePosition,
                     fromOffset = entry.offset + entry.size,
@@ -182,10 +205,11 @@ internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
             if (entryMeta.isEmpty()) {
                 entryMetasByFileName.remove(fileName)
             }
-            if (encryptedKeysByFileName.getValue(fileName).isEmpty()) {
+            if (encryptedKeysByFileName[fileName].isNullOrEmpty()) {
                 encryptedKeysByFileName.remove(fileName)
             }
         }
+        forcePendingChangesLocked()
     }
 
     internal companion object {
@@ -200,6 +224,12 @@ internal class SafeBoxRecoveryBlobStore private constructor(file: File) {
         internal const val FILE_NAME = "safebox_recovery"
 
         private var instance: SafeBoxRecoveryBlobStore? = null
+
+        @VisibleForTesting
+        internal fun create(
+            file: File,
+            beforeForce: () -> Unit,
+        ): SafeBoxRecoveryBlobStore = SafeBoxRecoveryBlobStore(file, beforeForce)
 
         /**
          * Returns the process-wide singleton recovery store, creating the backing file if needed.

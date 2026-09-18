@@ -23,7 +23,7 @@ All notable changes to this project will be documented in this file.
 ### Performance
 - **Batched `.apply()` pipeline:** Debounced batching that coalesces rapid edits/deletes, reducing I/O floods during bursts while keeping `.commit()` semantics predictable. ([#55](https://github.com/harrytmthy/safebox/issues/55), [#156](https://github.com/harrytmthy/safebox/issues/156))
 - **Lower contention in crypto:** Isolated ChaCha providers so key/value ciphers don’t block each other. ([#117](https://github.com/harrytmthy/safebox/issues/117))
-- **Adaptive flush in blob store:** One `force()` per updated page with adaptive behavior—eager for tiny blocking writes, batched for multi-page updates. ([#150](https://github.com/harrytmthy/safebox/issues/150), [#154](https://github.com/harrytmthy/safebox/issues/154))
+- **Adaptive flush in blob store:** One `force()` per updated page with adaptive behavior: eager for tiny blocking writes, batched for multi-page updates. ([#150](https://github.com/harrytmthy/safebox/issues/150), [#154](https://github.com/harrytmthy/safebox/issues/154))
 - **Smaller dependency footprint:** Switch to `bcprov-jdk15on` and minimal keep rules, making minified apps ≈9.5× smaller than before ([#115](https://github.com/harrytmthy/safebox/issues/115))
 
 ### Fixed
