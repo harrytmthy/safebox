@@ -18,13 +18,15 @@ package com.harrytmthy.safebox.engine
 
 import android.content.Context
 import android.os.Build
-import android.util.Log
 import androidx.annotation.VisibleForTesting
 import com.harrytmthy.safebox.SafeBox.Action
 import com.harrytmthy.safebox.SafeBox.Action.Put
 import com.harrytmthy.safebox.SafeBox.Action.Remove
+import com.harrytmthy.safebox.SafeBox.FailureListener
 import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.decoder.ByteDecoder
+import com.harrytmthy.safebox.diagnostics.FailureKind
+import com.harrytmthy.safebox.diagnostics.FailureReporter
 import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.storage.Bytes
@@ -51,6 +53,7 @@ internal class SafeBoxEngine private constructor(
     private val valueCipherProvider: CipherProvider,
     private val ioDispatcher: CoroutineDispatcher,
     private val notifyNullOnClear: Boolean,
+    private val failureReporter: FailureReporter,
 ) {
 
     private val entries: MutableMap<Bytes, ByteArray> = ConcurrentHashMap()
@@ -142,7 +145,7 @@ internal class SafeBoxEngine private constructor(
         val snapshot = LinkedHashMap(actions)
         actions.clear() // Prevents stale mutations on reused editor instance
         updateEntries(snapshot, cleared)
-        return launchWriteBlocking {
+        return launchWriteBlocking(snapshot, cleared) {
             applyChanges(snapshot, cleared, true)
         }
     }
@@ -182,7 +185,10 @@ internal class SafeBoxEngine private constructor(
             val cleared = pendingClear.also { pendingClear = false }
             snapshot to cleared
         }
-        launchWriteAsync {
+        launchWriteAsync(
+            actions = pendingActionsSnapshot,
+            cleared = shouldClear,
+        ) {
             applyChanges(pendingActionsSnapshot, shouldClear, false)
         }
     }
@@ -196,21 +202,22 @@ internal class SafeBoxEngine private constructor(
                 }
             }
             val modifiedKeys = callback?.let { ArrayList<String>(actions.size) }
-            for ((key, action) in actions) {
+            for (entry in actions) {
+                val (key, action) = entry
                 when (action) {
                     is Put -> {
-                        val encryptedKey = key.toEncryptedKey()
+                        val encryptedKey = key.toEncryptedKey(action = entry)
                         val oldValue = entries[encryptedKey]?.let {
-                            valueCipherProvider.tryDecrypt(it)
+                            valueCipherProvider.tryDecrypt(it, action = entry)
                         }
                         val newValue = action.encodedValue.value
                         if (!newValue.contentEquals(oldValue)) {
-                            entries[encryptedKey] = newValue.let(valueCipherProvider::encrypt)
+                            entries[encryptedKey] = encryptValue(newValue, entry)
                             modifiedKeys?.add(key)
                         }
                     }
                     is Remove -> {
-                        if (entries.remove(key.toEncryptedKey()) != null) {
+                        if (entries.remove(key.toEncryptedKey(action = entry)) != null) {
                             modifiedKeys?.add(key)
                         }
                     }
@@ -235,15 +242,17 @@ internal class SafeBoxEngine private constructor(
                 discardRecoveryEntries()
             }
         }
-        for ((key, action) in entries) {
+        for (entry in entries) {
+            val (key, action) = entry
             when (action) {
                 is Put -> {
-                    val encryptedKey = key.toEncryptedKey()
+                    val encryptedKey = key.toEncryptedKey(report = false)
                     val encryptedValue = action.encodedValue.value.let(valueCipherProvider::encrypt)
                     val supersedes = hasRecoveryEntry(encryptedKey)
                     try {
                         blobStore.write(encryptedKey, encryptedValue, forceNow || supersedes)
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        failureReporter.report(e, FailureKind.PRIMARY_WRITE, entry)
                         recoveryBlobStore.write(
                             fileName = fileNameBytes,
                             encryptedKey = encryptedKey,
@@ -260,7 +269,7 @@ internal class SafeBoxEngine private constructor(
                     }
                 }
                 is Remove -> {
-                    val encryptedKey = key.toEncryptedKey()
+                    val encryptedKey = key.toEncryptedKey(report = false)
                     val supersedes = hasRecoveryEntry(encryptedKey)
                     if (blobStore.contains(encryptedKey)) {
                         blobStore.delete(encryptedKey, forceNow || supersedes)
@@ -295,7 +304,7 @@ internal class SafeBoxEngine private constructor(
             delay(recoveryBackoffMs)
         }.invokeOnCompletion {
             val nextBackoffMs = (recoveryBackoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
-            launchWriteAsync(nextBackoffMs) {
+            launchWriteAsync(nextBackoffMs, kind = FailureKind.REPLAY) {
                 replayRecoveryEntries()
             }
         }
@@ -314,7 +323,8 @@ internal class SafeBoxEngine private constructor(
             try {
                 blobStore.write(encryptedKey, encryptedValue, false)
                 replayedKeys += encryptedKey
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                failureReporter.report(e, FailureKind.REPLAY)
                 continue
             }
         }
@@ -335,6 +345,9 @@ internal class SafeBoxEngine private constructor(
         safeBoxScope.launch(ioDispatcher) {
             try {
                 block()
+            } catch (e: Exception) {
+                failureReporter.report(e, FailureKind.LOAD)
+                throw e
             } finally {
                 initialReadCompleted.complete(Unit)
             }
@@ -346,7 +359,11 @@ internal class SafeBoxEngine private constructor(
         }
     }
 
-    private inline fun launchWriteBlocking(crossinline block: suspend () -> Unit): Boolean {
+    private inline fun launchWriteBlocking(
+        actions: Map<String, Action>,
+        cleared: Boolean,
+        crossinline block: suspend () -> Unit,
+    ): Boolean {
         val currentWriteBarrier = CompletableDeferred<Unit>()
         val previousWriteBarrier = writeBarrier.getAndSet(currentWriteBarrier)
         return runBlocking {
@@ -358,13 +375,13 @@ internal class SafeBoxEngine private constructor(
                 }
                 true
             } catch (e: Exception) {
-                Log.e("SafeBox", "Failed to commit changes.", e)
+                failureReporter.reportBatch(e, FailureKind.WRITE, actions, cleared)
                 false
             }
             try {
                 blobStore.flushDirtyPages()
             } catch (e: Exception) {
-                Log.e("SafeBox", "Failed to flush pending changes.", e)
+                failureReporter.reportBatch(e, FailureKind.FLUSH, actions, cleared)
                 committed = false
             } finally {
                 currentWriteBarrier.complete(Unit)
@@ -378,6 +395,9 @@ internal class SafeBoxEngine private constructor(
 
     private inline fun launchWriteAsync(
         recoveryBackoffMs: Long = DEFAULT_BACKOFF_MS,
+        kind: FailureKind = FailureKind.WRITE,
+        actions: Map<String, Action>? = null,
+        cleared: Boolean = false,
         crossinline block: suspend () -> Unit,
     ) {
         val currentWriteBarrier = CompletableDeferred<Unit>()
@@ -390,12 +410,12 @@ internal class SafeBoxEngine private constructor(
                     block()
                 }
             } catch (e: Exception) {
-                Log.e("SafeBox", "Failed to commit changes.", e)
+                failureReporter.reportBatch(e, kind, actions, cleared)
             } finally {
                 try {
                     blobStore.flushDirtyPages()
                 } catch (e: Exception) {
-                    Log.e("SafeBox", "Failed to flush pending changes.", e)
+                    failureReporter.reportBatch(e, FailureKind.FLUSH, actions, cleared)
                 } finally {
                     currentWriteBarrier.complete(Unit)
                 }
@@ -436,11 +456,11 @@ internal class SafeBoxEngine private constructor(
         if (!scanScheduled.compareAndSet(false, true)) {
             return
         }
-        launchWriteAsync {
+        launchWriteAsync(kind = FailureKind.REMOVE_UNREADABLE) {
             try {
                 val deadKeys = ArrayList<Bytes>()
                 for ((encryptedKey, encryptedValue) in entries) {
-                    if (valueCipherProvider.tryDecrypt(encryptedValue) == null) {
+                    if (valueCipherProvider.tryDecrypt(encryptedValue, report = false) == null) {
                         entries.remove(encryptedKey)
                         deadKeys.add(encryptedKey)
                     }
@@ -454,17 +474,43 @@ internal class SafeBoxEngine private constructor(
         }
     }
 
-    private fun CipherProvider.tryDecrypt(encryptedValue: ByteArray): ByteArray? =
+    private fun CipherProvider.tryDecrypt(
+        encryptedValue: ByteArray,
+        report: Boolean = true,
+        action: Map.Entry<String, Action>? = null,
+    ): ByteArray? =
         try {
             decrypt(encryptedValue)
         } catch (e: AEADBadTagException) {
-            Log.e("SafeBox", "Decrypt failed due to AEADBadTagException.", e)
+            failureReporter.report(e, FailureKind.DECRYPT, action, notifyListener = report)
             scanAndRemoveDeadEntries()
             null
+        } catch (e: Exception) {
+            failureReporter.report(e, FailureKind.DECRYPT, action, notifyListener = report)
+            throw e
         }
 
-    private fun String.toEncryptedKey(): Bytes =
-        keyCipherProvider.encrypt(this.toByteArray()).toBytes()
+    private fun String.toEncryptedKey(
+        report: Boolean = true,
+        action: Map.Entry<String, Action>? = null,
+    ): Bytes =
+        try {
+            keyCipherProvider.encrypt(this.toByteArray()).toBytes()
+        } catch (e: Exception) {
+            failureReporter.report(e, FailureKind.ENCRYPT_KEY, action, notifyListener = report)
+            throw e
+        }
+
+    private fun encryptValue(
+        value: ByteArray,
+        action: Map.Entry<String, Action>,
+    ): ByteArray =
+        try {
+            valueCipherProvider.encrypt(value)
+        } catch (e: Exception) {
+            failureReporter.report(e, FailureKind.ENCRYPT_VALUE, action)
+            throw e
+        }
 
     internal interface Callback {
         fun onEntryChanged(key: String?)
@@ -486,10 +532,12 @@ internal class SafeBoxEngine private constructor(
             ioDispatcher: CoroutineDispatcher,
             recoveryBlobStore: SafeBoxRecoveryBlobStore =
                 SafeBoxRecoveryBlobStore.getOrCreate(context),
+            failureListener: FailureListener? = null,
         ): SafeBoxEngine {
             val blobStore = SafeBoxBlobStore.create(context, fileName)
             val appOnRPlus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
             val appTargetsRPlus = context.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.R
+            val failureReporter = FailureReporter(fileName, failureListener)
             return SafeBoxEngine(
                 blobStore = blobStore,
                 recoveryBlobStore = recoveryBlobStore,
@@ -497,6 +545,7 @@ internal class SafeBoxEngine private constructor(
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
                 notifyNullOnClear = appOnRPlus && appTargetsRPlus,
+                failureReporter = failureReporter,
             )
         }
     }

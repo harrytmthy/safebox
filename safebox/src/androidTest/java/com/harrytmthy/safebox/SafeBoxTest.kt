@@ -23,17 +23,21 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_KEY_ALIAS
 import com.harrytmthy.safebox.SafeBox.Companion.DEFAULT_VALUE_KEYSTORE_ALIAS
+import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.engine.SafeBoxEngine
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.factory.SafeBoxCryptoFactory
 import com.harrytmthy.safebox.storage.Bytes
 import com.harrytmthy.safebox.storage.SafeBoxRecoveryBlobStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -42,13 +46,20 @@ import java.io.File
 import java.io.IOException
 import java.nio.channels.ClosedChannelException
 import java.security.KeyStore
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import javax.crypto.AEADBadTagException
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -529,7 +540,11 @@ class SafeBoxTest {
 
             fixture.failForce = true
             val editor = safeBox.edit()
-            if (clear) editor.clear() else editor.remove(RECOVERY_KEY)
+            if (clear) {
+                editor.clear()
+            } else {
+                editor.remove(RECOVERY_KEY)
+            }
             assertFalse(editor.commit())
             val attemptsBeforeReplay = fixture.forceAttempts
             assertFailsWith<IOException> { engines.getValue(fileName).replayRecoveryEntries() }
@@ -646,12 +661,409 @@ class SafeBoxTest {
         )
     }
 
+    @Test
+    fun apply_whenBatchFailsToWrite_shouldReportFailedActionAndActualBatch() {
+        val failures = FailureRecorder()
+        safeBox = createSafeBox(failureListener = failures)
+        safeBox.edit().putString("first", "1").putString("first", "2").apply()
+        safeBox.edit().putString("oversized", "x".repeat(2 * 1024 * 1024)).apply()
+
+        assertTrue(safeBox.edit().putString("next", "3").commit())
+
+        val (primaryError, primaryTrace) = failures.awaitFailure()
+        assertTrue(primaryError is IllegalStateException)
+        assertEquals("SafeBox \"$fileName\" primary write failed\n  put oversized", primaryTrace)
+        val (batchError, batchTrace) = failures.awaitFailure()
+        assertTrue(batchError is IllegalStateException)
+        assertEquals(
+            "SafeBox \"$fileName\" failed to write\n  batch: put first, put oversized",
+            batchTrace,
+        )
+        failures.assertNoFailure()
+    }
+
+    @Test
+    fun commit_whenPendingApplyAndMemoryUpdateFail_shouldKeepTheirActionContexts() {
+        val failures = FailureRecorder()
+        val cause = IOException("Memory encryption failed")
+        val valueCipherProvider = FaultyCipherProvider()
+        safeBox = createSafeBox(
+            cipherProviders = FaultyCipherProvider() to valueCipherProvider,
+            failureListener = failures,
+        )
+        safeBox.edit().putString("oversized", "x".repeat(2 * 1024 * 1024)).apply()
+        valueCipherProvider.encryptFailure = cause
+        valueCipherProvider.failOnEncryptCall = 3
+
+        val thrown = assertFailsWith<IOException> {
+            safeBox.edit().putString("new-action", "value").commit()
+        }
+        assertSame(cause, thrown)
+
+        repeat(2) {
+            val (error, trace) = failures.awaitFailure()
+            assertTrue(error is IllegalStateException)
+            assertTrue(trace.contains("put oversized"))
+            assertFalse(trace.contains("new-action"))
+        }
+        val (error, trace) = failures.awaitFailure()
+        assertSame(cause, error)
+        assertTrue(trace.contains("put new-action"))
+        assertFalse(trace.contains("oversized"))
+        failures.assertNoFailure()
+    }
+
+    @Test
+    fun replay_whenFailuresRepeat_shouldReportEachFailedEntryOnEveryPass() {
+        val failures = FailureRecorder()
+        safeBox = createSafeBox(failureListener = failures)
+        assertTrue(safeBox.edit().putString(FIRST_FILLER_KEY, "f".repeat(900_000)).commit())
+        val engine = engines.getValue(fileName)
+        engine.closeBlobStoreChannel()
+        for (key in listOf("first-recovery", "second-recovery")) {
+            assertTrue(safeBox.edit().putString(key, "r".repeat(250_000)).commit())
+            val (error, trace) = failures.awaitFailure()
+            assertTrue(error is ClosedChannelException)
+            assertTrue(trace.contains("primary write failed"))
+            assertTrue(trace.contains("put $key"))
+        }
+
+        repeat(2) {
+            runBlocking { engine.replayRecoveryEntries() }
+            repeat(2) {
+                val (error, trace) = failures.awaitFailure()
+                assertTrue(error is ClosedChannelException)
+                assertEquals("SafeBox \"$fileName\" failed to replay recovered entries", trace)
+            }
+        }
+        failures.assertNoFailure()
+    }
+
+    @Test
+    fun commit_whenRecoveryForceFails_shouldReportPrimaryFailureBeforeRecoveryFailure() = runTest {
+        withForceFailureStore { fixture ->
+            val failures = FailureRecorder()
+            safeBox = divertNextWriteToRecovery(
+                recoveryBlobStore = fixture.store,
+                failureListener = failures,
+            )
+            fixture.failForce = true
+
+            assertFalse(safeBox.edit().putString(RECOVERY_KEY, STALE_VALUE).commit())
+
+            val (primaryError, primaryTrace) = failures.awaitFailure()
+            assertTrue(primaryError is ClosedChannelException)
+            assertTrue(primaryTrace.contains("primary write failed"))
+            assertTrue(primaryTrace.contains("put $RECOVERY_KEY"))
+            val (recoveryError, recoveryTrace) = failures.awaitFailure()
+            assertTrue(recoveryError is IOException)
+            assertEquals("Injected recovery force failure", recoveryError.message)
+            assertTrue(recoveryTrace.contains("failed to write"))
+            assertTrue(recoveryTrace.contains("put $RECOVERY_KEY"))
+            failures.assertNoFailure()
+            fixture.failForce = false
+        }
+    }
+
+    @Test
+    fun getString_whenValueCannotBeDecrypted_shouldReportBeforeQueuedCleanup() = runTest {
+        val failures = FailureRecorder()
+        val valueCipherProvider = FaultyCipherProvider()
+        safeBox = createSafeBox(
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+            cipherProviders = FaultyCipherProvider() to valueCipherProvider,
+            failureListener = failures,
+        )
+        runCurrent()
+        assertTrue(safeBox.edit().putString("token", "secret").commit())
+        val cause = AEADBadTagException()
+        valueCipherProvider.decryptFailure = cause
+
+        assertNull(safeBox.getString("token", null))
+
+        val (error, trace) = failures.awaitFailure()
+        assertSame(cause, error)
+        assertTrue(trace.contains("failed to decrypt a preference"))
+        assertTrue(safeBox.contains("token"))
+        runCurrent()
+        assertFalse(safeBox.contains("token"))
+        failures.assertNoFailure()
+    }
+
+    @Test
+    fun getAll_whenKeyCannotBeDecrypted_shouldReportWithoutRemovingReadableValue() {
+        val failures = FailureRecorder()
+        val keyCipherProvider = FaultyCipherProvider()
+        safeBox = createSafeBox(
+            cipherProviders = keyCipherProvider to FaultyCipherProvider(),
+            failureListener = failures,
+        )
+        assertTrue(safeBox.edit().putString("token", "secret").commit())
+        val cause = AEADBadTagException()
+        keyCipherProvider.decryptFailure = cause
+
+        assertTrue(safeBox.all.isEmpty())
+
+        val (error, trace) = failures.awaitFailure()
+        assertSame(cause, error)
+        assertTrue(trace.contains("failed to decrypt a preference"))
+        assertEquals("secret", safeBox.getString("token", null))
+        failures.assertNoFailure()
+    }
+
+    @Test
+    fun commit_whenFailureListenerThrows_shouldContinueDeliveringFailures() {
+        val attempts = CountDownLatch(4)
+        safeBox = createSafeBox(failureListener = { _, _ ->
+            attempts.countDown()
+            error("Listener failure")
+        })
+
+        repeat(2) {
+            assertFalse(safeBox.edit().putString("oversized", "x".repeat(2 * 1024 * 1024)).commit())
+        }
+
+        assertTrue(attempts.await(5, TimeUnit.SECONDS))
+        assertTrue(safeBox.edit().putString("next", "value").commit())
+    }
+
+    @Test
+    fun commit_whenMemoryValueEncryptionFails_shouldReportAndPropagateOriginalException() {
+        val failures = FailureRecorder()
+        val cause = IOException("Injected encryption failure")
+        val valueCipherProvider = FaultyCipherProvider().apply { encryptFailure = cause }
+        safeBox = createSafeBox(
+            cipherProviders = FaultyCipherProvider() to valueCipherProvider,
+            failureListener = failures,
+        )
+
+        val thrown = assertFailsWith<IOException> {
+            safeBox.edit().putString("token", "secret-value").commit()
+        }
+
+        val (error, trace) = failures.awaitFailure()
+        assertSame(cause, thrown)
+        assertSame(cause, error)
+        assertTrue(trace.contains("failed to encrypt a preference value"))
+        assertTrue(trace.contains("put token"))
+        assertFalse(trace.contains("secret-value"))
+        failures.assertNoFailure()
+        val nextCause = IOException("Next encryption failure")
+        valueCipherProvider.encryptFailure = nextCause
+        assertFailsWith<IOException> { safeBox.edit().putString("next", "value").commit() }
+        assertSame(nextCause, failures.awaitFailure().first)
+    }
+
+    @Test
+    fun commit_whenPersistenceKeyEncryptionFails_shouldReportOnceWithBatchContext() {
+        val failures = FailureRecorder()
+        val cause = IOException("Injected encryption failure")
+        val keyCipherProvider = FaultyCipherProvider().apply {
+            encryptFailure = cause
+            failOnEncryptCall = 2
+        }
+        safeBox = createSafeBox(
+            cipherProviders = keyCipherProvider to FaultyCipherProvider(),
+            failureListener = failures,
+        )
+
+        assertFalse(safeBox.edit().putString("token", "secret-value").commit())
+
+        val (error, trace) = failures.awaitFailure()
+        assertSame(cause, error)
+        assertTrue(trace.contains("failed to write"))
+        assertTrue(trace.contains("put token"))
+        assertTrue(trace.contains("batch: put token"))
+        assertFalse(trace.contains("secret-value"))
+        failures.assertNoFailure()
+        val nextCause = IOException("Next encryption failure")
+        keyCipherProvider.encryptFailure = nextCause
+        keyCipherProvider.failOnEncryptCall = null
+        assertFailsWith<IOException> { safeBox.edit().putString("next", "value").commit() }
+        assertSame(nextCause, failures.awaitFailure().first)
+    }
+
+    @Test
+    fun commit_fromFailureListener_shouldFinishWithoutWaitingForItsOwnDelivery() {
+        val completed = CountDownLatch(1)
+        val result = AtomicReference<Result<Boolean>>()
+        safeBox = createSafeBox(failureListener = { _, trace ->
+            if (trace.contains("primary write failed")) {
+                result.set(runCatching { safeBox.edit().putString("next", "value").commit() })
+                completed.countDown()
+            }
+        })
+
+        assertFalse(safeBox.edit().putString("oversized", "x".repeat(2 * 1024 * 1024)).commit())
+
+        assertTrue(completed.await(5, TimeUnit.SECONDS))
+        assertTrue(result.get().getOrThrow())
+        assertEquals("value", safeBox.getString("next", null))
+    }
+
+    @Test
+    fun commit_whenFailureListenerBlocks_shouldFinishBeforeListenerReturns() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val completed = CountDownLatch(1)
+        val result = AtomicReference<Result<Boolean>>()
+        safeBox = createSafeBox(failureListener = { _, _ ->
+            entered.countDown()
+            release.await(5, TimeUnit.SECONDS)
+        })
+        val writer = Thread {
+            result.set(
+                runCatching {
+                    safeBox.edit().putString("oversized", "x".repeat(2 * 1024 * 1024)).commit()
+                },
+            )
+            completed.countDown()
+        }
+        writer.start()
+
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertTrue(completed.await(2, TimeUnit.SECONDS))
+            assertFalse(result.get().getOrThrow())
+            assertTrue(safeBox.edit().putString("next", "value").commit())
+        } finally {
+            release.countDown()
+            writer.join(5000)
+        }
+    }
+
+    @Test
+    fun commit_whenListenerIsBusy_shouldKeepAcceptedFailuresOrdered() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val activeCallbacks = AtomicInteger()
+        val callbacksOverlapped = AtomicBoolean(false)
+        val failures = FailureRecorder()
+        val first = IOException("First failure")
+        val cipher = FaultyCipherProvider().apply { encryptFailure = first }
+        safeBox = createSafeBox(
+            cipherProviders = FaultyCipherProvider() to cipher,
+            failureListener = { error, trace ->
+                if (activeCallbacks.incrementAndGet() > 1) {
+                    callbacksOverlapped.set(true)
+                }
+                try {
+                    if (error === first) {
+                        entered.countDown()
+                        release.await(5, TimeUnit.SECONDS)
+                    }
+                    failures.onFailure(error, trace)
+                } finally {
+                    activeCallbacks.decrementAndGet()
+                }
+            },
+        )
+        assertFailsWith<IOException> { safeBox.edit().putInt("key", 0).commit() }
+        val additionalFailures = List(40) { IOException("Failure $it") }
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            for (cause in additionalFailures) {
+                cipher.encryptFailure = cause
+                assertFailsWith<IOException> { safeBox.edit().putInt("key", 1).commit() }
+            }
+            failures.assertNoFailure()
+        } finally {
+            release.countDown()
+        }
+
+        assertSame(first, failures.awaitFailure().first)
+        for (cause in additionalFailures.take(16)) {
+            val (error, trace) = failures.awaitFailure()
+            assertSame(cause, error)
+            assertEquals("SafeBox \"$fileName\" failed to encrypt a preference value\n  put key", trace)
+        }
+        assertFalse(callbacksOverlapped.get())
+        failures.assertNoFailure()
+        val next = IOException("After draining")
+        cipher.encryptFailure = next
+        assertFailsWith<IOException> { safeBox.edit().putInt("key", 2).commit() }
+        val (error, trace) = failures.awaitFailure()
+        assertSame(next, error)
+        assertEquals("SafeBox \"$fileName\" failed to encrypt a preference value\n  put key", trace)
+    }
+
+    @Test
+    fun commit_withRepeatedEdits_shouldReportOnlyFinalActionAndResetReusedEditor() {
+        val failures = FailureRecorder()
+        safeBox = createSafeBox(failureListener = failures)
+        val editor = safeBox.edit()
+        repeat(10_000) { editor.putString("first", "value") }
+        editor.putString("first", "x".repeat(2 * 1024 * 1024))
+
+        assertFalse(editor.commit())
+
+        val (_, firstTrace) = failures.awaitFailure()
+        assertEquals("SafeBox \"$fileName\" primary write failed\n  put first", firstTrace)
+        assertTrue(failures.awaitFailure().second.contains("failed to write"))
+        assertFalse(editor.putString("second", "x".repeat(2 * 1024 * 1024)).commit())
+        val (_, secondTrace) = failures.awaitFailure()
+        assertTrue(secondTrace.contains("put second"))
+        assertFalse(secondTrace.contains("first"))
+        assertFalse(secondTrace.contains("omitted"))
+        assertTrue(failures.awaitFailure().second.contains("failed to write"))
+        failures.assertNoFailure()
+    }
+
+    @Test
+    fun create_withCachedInstance_shouldKeepOriginalFailureListener() {
+        val originalFailures = FailureRecorder()
+        val replacementFailures = FailureRecorder()
+        safeBox = createSafeBox(failureListener = originalFailures)
+
+        val existing = SafeBox.create(
+            context,
+            fileName,
+            FaultyCipherProvider(),
+            FaultyCipherProvider(),
+            failureListener = replacementFailures,
+            ioDispatcher = UnconfinedTestDispatcher(),
+        )
+
+        assertSame(safeBox, existing)
+        assertFalse(existing.edit().putString("oversized", "x".repeat(2 * 1024 * 1024)).commit())
+        val (_, primaryTrace) = originalFailures.awaitFailure()
+        assertTrue(primaryTrace.contains("primary write failed"))
+        assertTrue(originalFailures.awaitFailure().second.contains("failed to write"))
+        replacementFailures.assertNoFailure()
+    }
+
+    @Test
+    fun commit_whenEncryptionCancelled_shouldPropagateWithoutReportingCancellation() {
+        val failures = FailureRecorder()
+        val cancelled = CancellationException("Operation cancelled")
+        val valueCipherProvider = FaultyCipherProvider().apply { encryptFailure = cancelled }
+        safeBox = createSafeBox(
+            cipherProviders = FaultyCipherProvider() to valueCipherProvider,
+            failureListener = failures,
+        )
+
+        val thrown = assertFailsWith<CancellationException> {
+            safeBox.edit().putString("cancelled", "value").commit()
+        }
+        assertSame(cancelled, thrown)
+        val cause = IOException("Injected encryption failure")
+        valueCipherProvider.encryptFailure = cause
+        assertFailsWith<IOException> { safeBox.edit().putString("failed", "value").commit() }
+
+        assertSame(cause, failures.awaitFailure().first)
+        failures.assertNoFailure()
+    }
+
     private fun divertNextWriteToRecovery(
         secondPage: Boolean = false,
         recoveryBlobStore: SafeBoxRecoveryBlobStore =
             SafeBoxRecoveryBlobStore.getOrCreate(context),
+        failureListener: SafeBox.FailureListener? = null,
     ): SafeBox {
-        val safeBox = createSafeBox(recoveryBlobStore = recoveryBlobStore)
+        val safeBox = createSafeBox(
+            recoveryBlobStore = recoveryBlobStore,
+            failureListener = failureListener,
+        )
         // Force page growth: closing a channel does not invalidate existing mappings.
         assertTrue(safeBox.edit().putString(FIRST_FILLER_KEY, STALE_VALUE).commit())
         if (secondPage) {
@@ -709,11 +1121,11 @@ class SafeBoxTest {
         ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(),
         recoveryBlobStore: SafeBoxRecoveryBlobStore =
             SafeBoxRecoveryBlobStore.getOrCreate(context),
+        cipherProviders: Pair<CipherProvider, CipherProvider> =
+            SafeBoxCryptoFactory.createChaCha20Providers(context, fileName),
+        failureListener: SafeBox.FailureListener? = null,
     ): SafeBox {
-        val (keyCipherProvider, valueCipherProvider) = SafeBoxCryptoFactory.createChaCha20Providers(
-            context = context,
-            fileName = fileName,
-        )
+        val (keyCipherProvider, valueCipherProvider) = cipherProviders
         val engine = SafeBoxEngine.create(
             context,
             fileName,
@@ -721,6 +1133,7 @@ class SafeBoxTest {
             valueCipherProvider,
             ioDispatcher,
             recoveryBlobStore,
+            failureListener,
         )
         engines[fileName] = engine
         return SafeBox.createInternal(fileName, engine)
@@ -750,6 +1163,51 @@ class SafeBoxTest {
             if (failForce) {
                 throw IOException("Injected recovery force failure")
             }
+        }
+    }
+
+    private class FailureRecorder : SafeBox.FailureListener {
+
+        private val failures = LinkedBlockingQueue<Pair<Throwable, String>>()
+
+        override fun onFailure(error: Throwable, trace: String) {
+            failures.add(error to trace)
+        }
+
+        fun awaitFailure(): Pair<Throwable, String> =
+            checkNotNull(failures.poll(5, TimeUnit.SECONDS)) { "No failure was delivered" }
+
+        fun assertNoFailure() {
+            assertNull(
+                failures.poll(200, TimeUnit.MILLISECONDS),
+                "Unexpected failure was delivered",
+            )
+        }
+    }
+
+    private class FaultyCipherProvider : CipherProvider {
+
+        var encryptFailure: Exception? = null
+
+        var decryptFailure: Exception? = null
+
+        var failOnEncryptCall: Int? = null
+
+        private var encryptCalls = 0
+
+        override fun encrypt(plaintext: ByteArray): ByteArray {
+            encryptCalls++
+            encryptFailure?.let {
+                if (failOnEncryptCall == null || encryptCalls == failOnEncryptCall) {
+                    throw it
+                }
+            }
+            return plaintext
+        }
+
+        override fun decrypt(ciphertext: ByteArray): ByteArray {
+            decryptFailure?.let { throw it }
+            return ciphertext
         }
     }
 
