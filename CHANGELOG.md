@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0-rc01] - 2026-09-22
+
+### Added
+- **Opt-in failure reporting:** Optional `FailureListener` in `SafeBox.create()` receives persistence and cryptographic failures with action or batch context, without recording mutation history or stored values. Logcat provides a fallback when the listener throws or its queue is full. ([#180](https://github.com/harrytmthy/safebox/issues/180), [#181](https://github.com/harrytmthy/safebox/pull/181))
+
+### Changed
+- **Storage reclamation:** Reclaims trailing empty pages after removals and clears to reduce the backing file size. ([#177](https://github.com/harrytmthy/safebox/pull/177))
+- **Recovery consistency:** Preserves pending recovery data across failed writes and tracks journal retirement separately from values awaiting replay, preventing failed retirement from replaying removed or cleared values in the running process. ([#178](https://github.com/harrytmthy/safebox/issues/178), [#179](https://github.com/harrytmthy/safebox/pull/179))
+- **License alignment:** Aligned the project license and publishing metadata with Apache 2.0. ([#171](https://github.com/harrytmthy/safebox/pull/171))
+- **Build tooling:** Updated AGP to 9.3.2, Gradle to 9.7.1, Kotlin to 2.4.10, Coroutines to 1.11.0, and compileSdk to 37, with dependency updates and unused dependency removal. ([#169](https://github.com/harrytmthy/safebox/pull/169), [#174](https://github.com/harrytmthy/safebox/pull/174))
+
+### Removed
+- **State observation APIs:** Removed `SafeBoxState`, `SafeBoxStateListener`, `SafeBoxGlobalStateObserver`, and the `stateListener` creation parameter. Applications using these APIs must remove those references when upgrading. ([#167](https://github.com/harrytmthy/safebox/pull/167))
+
+### Fixed
+- **Bouncy Castle provider isolation:** Includes the `1.3.1` hotfix. SafeBox uses its bundled provider privately as a fallback without replacing the process-wide `BC` provider. ([#172](https://github.com/harrytmthy/safebox/issues/172), [#175](https://github.com/harrytmthy/safebox/pull/175))
+
 ## [1.3.1] - 2026-09-05
 
 ### Fixed

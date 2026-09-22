@@ -25,7 +25,7 @@ class PublishingConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
             group = "io.github.harrytmthy"
-            version = "1.3.1"
+            version = "1.4.0-rc01"
 
             pluginManager.apply("org.jetbrains.dokka")
             pluginManager.apply("com.vanniktech.maven.publish")
@@ -36,8 +36,8 @@ class PublishingConventionPlugin : Plugin<Project> {
                     url.set("https://github.com/harrytmthy/safebox")
                     licenses {
                         license {
-                            name.set("MIT License")
-                            url.set("https://opensource.org/licenses/MIT")
+                            name.set("Apache License 2.0")
+                            url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
                         }
                     }
                     developers {
