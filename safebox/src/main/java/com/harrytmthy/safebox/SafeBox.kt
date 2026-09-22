@@ -163,6 +163,22 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
         object Remove : Action()
     }
 
+    /**
+     * Receives failures sequentially on [Dispatchers.IO], in report acceptance order per instance.
+     * Return promptly. If the delivery queue fills, new reports are logged instead of delivered.
+     *
+     * Successful delivery does not also log the failure. If the listener throws, one fallback log
+     * contains the trace and both exceptions. Delivery may begin before creation returns.
+     * Failures preventing instance construction still propagate directly to the caller.
+     *
+     * The trace includes key names but excludes stored values. The original [Throwable] is passed
+     * unchanged, so applications should review both fields before forwarding them externally.
+     * Fallback logs include key names and exception details without application-side redaction.
+     */
+    public fun interface FailureListener {
+        public fun onFailure(error: Throwable, trace: String)
+    }
+
     public companion object {
 
         @VisibleForTesting
@@ -185,6 +201,7 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
+         * @param failureListener Fixed for this instance. Null disables diagnostic recording.
          *
          * @return A fully configured [SafeBox] instance
          */
@@ -195,6 +212,7 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
             context: Context,
             fileName: String,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            failureListener: FailureListener? = null,
         ): SafeBox {
             val (keyCipherProvider, valueCipherProvider) = createChaCha20Providers(
                 context = context,
@@ -206,6 +224,7 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
                 keyCipherProvider = keyCipherProvider,
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
+                failureListener = failureListener,
             )
             return createInternal(fileName, engine)
         }
@@ -224,6 +243,7 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
          * @param keyCipherProvider Cipher used for encrypting and decrypting keys
          * @param valueCipherProvider Cipher used for encrypting and decrypting values
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
+         * @param failureListener Fixed for this instance. Null disables diagnostic recording.
          *
          * @return A [SafeBox] instance with the provided [CipherProvider]
          */
@@ -236,6 +256,7 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
             keyCipherProvider: CipherProvider,
             valueCipherProvider: CipherProvider,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            failureListener: FailureListener? = null,
         ): SafeBox {
             val engine = SafeBoxEngine.create(
                 context = context,
@@ -243,6 +264,7 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
                 keyCipherProvider = keyCipherProvider,
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
+                failureListener = failureListener,
             )
             return createInternal(fileName, engine)
         }

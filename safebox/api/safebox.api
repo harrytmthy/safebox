@@ -5,7 +5,9 @@ public final class com/harrytmthy/safebox/SafeBox : android/content/SharedPrefer
 	public static final fun create (Landroid/content/Context;Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
 	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;)Lcom/harrytmthy/safebox/SafeBox;
 	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;)Lcom/harrytmthy/safebox/SafeBox;
+	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/SafeBox$FailureListener;)Lcom/harrytmthy/safebox/SafeBox;
 	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;)Lcom/harrytmthy/safebox/SafeBox;
+	public static final fun create (Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/SafeBox$FailureListener;)Lcom/harrytmthy/safebox/SafeBox;
 	public fun edit ()Landroid/content/SharedPreferences$Editor;
 	public static final fun get (Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
 	public fun getAll ()Ljava/util/Map;
@@ -25,11 +27,17 @@ public final class com/harrytmthy/safebox/SafeBox$Companion {
 	public final fun create (Landroid/content/Context;Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
 	public final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;)Lcom/harrytmthy/safebox/SafeBox;
 	public final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;)Lcom/harrytmthy/safebox/SafeBox;
+	public final fun create (Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/SafeBox$FailureListener;)Lcom/harrytmthy/safebox/SafeBox;
 	public final fun create (Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;)Lcom/harrytmthy/safebox/SafeBox;
-	public static synthetic fun create$default (Lcom/harrytmthy/safebox/SafeBox$Companion;Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;ILjava/lang/Object;)Lcom/harrytmthy/safebox/SafeBox;
-	public static synthetic fun create$default (Lcom/harrytmthy/safebox/SafeBox$Companion;Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;ILjava/lang/Object;)Lcom/harrytmthy/safebox/SafeBox;
+	public final fun create (Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/SafeBox$FailureListener;)Lcom/harrytmthy/safebox/SafeBox;
+	public static synthetic fun create$default (Lcom/harrytmthy/safebox/SafeBox$Companion;Landroid/content/Context;Ljava/lang/String;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lcom/harrytmthy/safebox/cryptography/CipherProvider;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/SafeBox$FailureListener;ILjava/lang/Object;)Lcom/harrytmthy/safebox/SafeBox;
+	public static synthetic fun create$default (Lcom/harrytmthy/safebox/SafeBox$Companion;Landroid/content/Context;Ljava/lang/String;Lkotlinx/coroutines/CoroutineDispatcher;Lcom/harrytmthy/safebox/SafeBox$FailureListener;ILjava/lang/Object;)Lcom/harrytmthy/safebox/SafeBox;
 	public final fun get (Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
 	public final fun getOrNull (Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
+}
+
+public abstract interface class com/harrytmthy/safebox/SafeBox$FailureListener {
+	public abstract fun onFailure (Ljava/lang/Throwable;Ljava/lang/String;)V
 }
 
 public final class com/harrytmthy/safebox/migration/SafeBoxMigrationHelper {
