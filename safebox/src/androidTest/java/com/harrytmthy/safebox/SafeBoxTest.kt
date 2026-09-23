@@ -662,7 +662,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun apply_whenBatchFailsToWrite_shouldReportFailedActionAndActualBatch() {
+    fun apply_whenBatchFailsToWrite_shouldNotifyFailedActionAndActualBatch() {
         val failures = FailureRecorder()
         safeBox = createSafeBox(failureListener = failures)
         safeBox.edit().putString("first", "1").putString("first", "2").apply()
@@ -714,7 +714,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun replay_whenFailuresRepeat_shouldReportEachFailedEntryOnEveryPass() {
+    fun replay_whenFailuresRepeat_shouldNotifyEachFailedEntryOnEveryPass() {
         val failures = FailureRecorder()
         safeBox = createSafeBox(failureListener = failures)
         assertTrue(safeBox.edit().putString(FIRST_FILLER_KEY, "f".repeat(900_000)).commit())
@@ -740,7 +740,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun commit_whenRecoveryForceFails_shouldReportPrimaryFailureBeforeRecoveryFailure() = runTest {
+    fun commit_whenRecoveryForceFails_shouldNotifyPrimaryFailureBeforeRecoveryFailure() = runTest {
         withForceFailureStore { fixture ->
             val failures = FailureRecorder()
             safeBox = divertNextWriteToRecovery(
@@ -766,7 +766,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun getString_whenValueCannotBeDecrypted_shouldReportBeforeQueuedCleanup() = runTest {
+    fun getString_whenValueCannotBeDecrypted_shouldNotifyBeforeQueuedCleanup() = runTest {
         val failures = FailureRecorder()
         val valueCipherProvider = FaultyCipherProvider()
         safeBox = createSafeBox(
@@ -791,7 +791,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun getAll_whenKeyCannotBeDecrypted_shouldReportWithoutRemovingReadableValue() {
+    fun getAll_whenKeyCannotBeDecrypted_shouldNotifyWithoutRemovingReadableValue() {
         val failures = FailureRecorder()
         val keyCipherProvider = FaultyCipherProvider()
         safeBox = createSafeBox(
@@ -828,7 +828,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun commit_whenMemoryValueEncryptionFails_shouldReportAndPropagateOriginalException() {
+    fun commit_whenMemoryValueEncryptionFails_shouldNotifyAndPropagateOriginalException() {
         val failures = FailureRecorder()
         val cause = IOException("Injected encryption failure")
         val valueCipherProvider = FaultyCipherProvider().apply { encryptFailure = cause }
@@ -855,7 +855,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun commit_whenPersistenceKeyEncryptionFails_shouldReportOnceWithBatchContext() {
+    fun commit_whenPersistenceKeyEncryptionFails_shouldNotifyOnceWithBatchContext() {
         val failures = FailureRecorder()
         val cause = IOException("Injected encryption failure")
         val keyCipherProvider = FaultyCipherProvider().apply {
@@ -988,7 +988,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun commit_withRepeatedEdits_shouldReportOnlyFinalActionAndResetReusedEditor() {
+    fun commit_withRepeatedEdits_shouldNotifyOnlyFinalActionAndResetReusedEditor() {
         val failures = FailureRecorder()
         safeBox = createSafeBox(failureListener = failures)
         val editor = safeBox.edit()
@@ -1033,7 +1033,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun commit_whenEncryptionCancelled_shouldPropagateWithoutReportingCancellation() {
+    fun commit_whenEncryptionCancelled_shouldPropagateWithoutNotifyingCancellation() {
         val failures = FailureRecorder()
         val cancelled = CancellationException("Operation cancelled")
         val valueCipherProvider = FaultyCipherProvider().apply { encryptFailure = cancelled }

@@ -25,7 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import javax.crypto.AEADBadTagException
 
-internal class FailureReporter(
+internal class FailureNotifier(
     private val fileName: String,
     private val listener: SafeBox.FailureListener?,
 ) {
@@ -34,7 +34,7 @@ internal class FailureReporter(
 
     private var deliveringFailures = false
 
-    fun report(
+    fun notify(
         error: Exception,
         kind: FailureKind,
         action: Map.Entry<String, Action>? = null,
@@ -53,10 +53,10 @@ internal class FailureReporter(
                 append("\n  ").append(action.value.describe(action.key))
             }
         }
-        deliver(error, trace)
+        enqueue(error, trace)
     }
 
-    fun reportBatch(
+    fun notifyBatch(
         error: Exception,
         kind: FailureKind,
         actions: Map<String, Action>?,
@@ -91,7 +91,7 @@ internal class FailureReporter(
                 }
             }
         }
-        deliver(error, trace)
+        enqueue(error, trace)
     }
 
     private fun StringBuilder.appendHeader(tag: String) {
@@ -129,7 +129,7 @@ internal class FailureReporter(
         return "$operation $boundedKey$suffix"
     }
 
-    private fun deliver(error: Exception, trace: String) {
+    private fun enqueue(error: Exception, trace: String) {
         val pendingFailures = pendingFailures ?: return
         val listener = listener ?: return
         val queueFull = synchronized(pendingFailures) {
@@ -147,7 +147,7 @@ internal class FailureReporter(
         if (queueFull) {
             Log.e(
                 "SafeBox",
-                "Failure listener queue full. Reporting this failure to logcat instead:\n$trace",
+                "Failure listener queue full. Logging this failure instead:\n$trace",
                 error,
             )
             return
@@ -168,7 +168,7 @@ internal class FailureReporter(
                     listener.onFailure(nextError, nextTrace)
                 } catch (e: Exception) {
                     val fallback = buildString {
-                        append("Failure listener threw while reporting:\n").append(nextTrace)
+                        append("Failure listener threw while handling:\n").append(nextTrace)
                         append("\nOriginal failure:\n").append(Log.getStackTraceString(nextError))
                         append("\nListener failure:")
                     }

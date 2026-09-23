@@ -34,14 +34,14 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 @RunWith(AndroidJUnit4::class)
-class FailureReporterTest {
+class FailureNotifierTest {
 
     @Test
-    fun reportBatch_withoutListener_shouldKeepExistingConsoleMessage() {
+    fun notifyBatch_withoutListener_shouldKeepExistingConsoleMessage() {
         val marker = UUID.randomUUID().toString()
-        val reporter = FailureReporter("preferences", null)
+        val notifier = FailureNotifier("preferences", null)
 
-        reporter.reportBatch(IOException(marker), FailureKind.WRITE, emptyMap(), false)
+        notifier.notifyBatch(IOException(marker), FailureKind.WRITE, emptyMap(), false)
 
         val logs = readLogs()
         assertTrue(logs.contains("Failed to commit changes."))
@@ -50,43 +50,43 @@ class FailureReporterTest {
     }
 
     @Test
-    fun reportBatch_whenListenerSucceeds_shouldNotAlsoLogFailure() {
+    fun notifyBatch_whenListenerSucceeds_shouldNotAlsoLogFailure() {
         val marker = UUID.randomUUID().toString()
         val delivered = CountDownLatch(1)
-        val reporter = FailureReporter("preferences") { _, _ -> delivered.countDown() }
+        val notifier = FailureNotifier("preferences") { _, _ -> delivered.countDown() }
 
-        reporter.reportBatch(IOException(marker), FailureKind.WRITE, emptyMap(), false)
+        notifier.notifyBatch(IOException(marker), FailureKind.WRITE, emptyMap(), false)
 
         assertTrue(delivered.await(5, TimeUnit.SECONDS))
         assertFalse(readLogs().contains(marker))
     }
 
     @Test
-    fun reportBatch_whenListenerThrows_shouldLogOriginalIncidentAndDeliveryFailureTogether() {
+    fun notifyBatch_whenListenerThrows_shouldLogOriginalIncidentAndDeliveryFailureTogether() {
         val original = IOException("original-${UUID.randomUUID()}")
         val listenerError = IllegalStateException("listener-${UUID.randomUUID()}")
         val drained = CountDownLatch(1)
-        val reporter = FailureReporter("preferences") { error, _ ->
+        val notifier = FailureNotifier("preferences") { error, _ ->
             if (error === original) {
                 throw listenerError
             }
             drained.countDown()
         }
 
-        reporter.reportBatch(
+        notifier.notifyBatch(
             original,
             FailureKind.WRITE,
             linkedMapOf("token" to Action.Remove),
             false,
         )
         // The next callback runs only after the failed delivery has finished logging.
-        reporter.report(IOException("next"), FailureKind.LOAD)
+        notifier.notify(IOException("next"), FailureKind.LOAD)
         assertTrue(drained.await(5, TimeUnit.SECONDS))
 
         val logs = readLogs()
         assertTrue(
             logs.contains(
-                "Failure listener threw while reporting:\n" +
+                "Failure listener threw while handling:\n" +
                     "SafeBox \"preferences\" failed to write\n  batch: remove token\n" +
                     "Original failure:\njava.io.IOException: ${original.message}",
             ),
@@ -102,12 +102,12 @@ class FailureReporterTest {
     }
 
     @Test
-    fun reportBatch_whenQueueIsFull_shouldLogOverflowWithoutChangingAcceptedReports() {
+    fun notifyBatch_whenQueueIsFull_shouldLogOverflowWithoutChangingAcceptedNotifications() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val delivered = LinkedBlockingQueue<Pair<Throwable, String>>()
         val first = IOException("first")
-        val reporter = FailureReporter("preferences") { error, trace ->
+        val notifier = FailureNotifier("preferences") { error, trace ->
             if (error === first) {
                 entered.countDown()
                 release.await(5, TimeUnit.SECONDS)
@@ -116,12 +116,14 @@ class FailureReporterTest {
         }
         val queued = List(16) { IOException("queued-$it") }
         val overflow = IOException("overflow-${UUID.randomUUID()}")
-        reporter.report(first, FailureKind.LOAD)
+        notifier.notify(first, FailureKind.LOAD)
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
-            for (error in queued) reporter.report(error, FailureKind.LOAD)
+            for (error in queued) {
+                notifier.notify(error, FailureKind.LOAD)
+            }
 
-            reporter.reportBatch(
+            notifier.notifyBatch(
                 overflow,
                 FailureKind.WRITE,
                 linkedMapOf("token" to Action.Remove),
@@ -131,7 +133,7 @@ class FailureReporterTest {
             val logs = readLogs()
             assertTrue(
                 logs.contains(
-                    "Failure listener queue full. Reporting this failure to logcat instead:\n" +
+                    "Failure listener queue full. Logging this failure instead:\n" +
                         "SafeBox \"preferences\" failed to write\n  batch: remove token\n" +
                         "java.io.IOException: ${overflow.message}",
                 ),
@@ -147,7 +149,7 @@ class FailureReporterTest {
             assertEquals("SafeBox \"preferences\" failed to load stored entries", failure?.second)
         }
         val next = IOException("after draining")
-        reporter.report(next, FailureKind.LOAD)
+        notifier.notify(next, FailureKind.LOAD)
         assertSame(next, delivered.poll(5, TimeUnit.SECONDS)?.first)
     }
 

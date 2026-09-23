@@ -164,8 +164,9 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
     }
 
     /**
-     * Receives failures sequentially on [Dispatchers.IO], in report acceptance order per instance.
-     * Return promptly. If the delivery queue fills, new reports are logged instead of delivered.
+     * Receives failures that occur inside SafeBox. Callbacks run sequentially on
+     * [Dispatchers.IO], in the order accepted per instance. Return promptly.
+     * If the delivery queue fills, new failures are logged instead of delivered.
      *
      * Successful delivery does not also log the failure. If the listener throws, one fallback log
      * contains the trace and both exceptions. Delivery may begin before creation returns.
@@ -201,7 +202,7 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
          * @param context The application context
          * @param fileName The name of the backing file used for persistence
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
-         * @param failureListener Fixed for this instance. Null disables diagnostic recording.
+         * @param failureListener Receives failures for diagnostics. Immutable after creation.
          *
          * @return A fully configured [SafeBox] instance
          */
@@ -243,7 +244,7 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
          * @param keyCipherProvider Cipher used for encrypting and decrypting keys
          * @param valueCipherProvider Cipher used for encrypting and decrypting values
          * @param ioDispatcher The dispatcher used for I/O operations (default: [Dispatchers.IO])
-         * @param failureListener Fixed for this instance. Null disables diagnostic recording.
+         * @param failureListener Receives failures for diagnostics. Immutable after creation.
          *
          * @return A [SafeBox] instance with the provided [CipherProvider]
          */
