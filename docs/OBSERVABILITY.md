@@ -1,41 +1,35 @@
-# Observing State Changes
+# Observability
 
-You can observe SafeBox lifecycle state transitions (`STARTING`, `WRITING`, `IDLE`) in two ways.
-
-## 1. Instance-bound listener
+Since `1.4.0`, you can observe SafeBox failures:
 
 ```kotlin
-val safeBox = SafeBox.create(
+val prefs = SafeBox.create(
     context = context,
-    fileName = PREF_FILE_NAME,
-    stateListener = SafeBoxStateListener { state ->
-        when (state) {
-            SafeBoxState.STARTING -> trackStart()    // Loading from disk
-            SafeBoxState.IDLE     -> trackIdle()     // No active persistence
-            SafeBoxState.WRITING  -> trackWrite()    // Persisting to disk
-        }
-    }
+    fileName = "preferences",
+    failureListener = SafeBox.FailureListener { error, trace ->
+        Timber.e(error, trace)
+    },
 )
 ```
 
-## 2. Global observer
+Example output (`trace`):
 
-```kotlin
-val listener = SafeBoxStateListener { state ->
-    when (state) {
-        SafeBoxState.STARTING -> onStart()
-        SafeBoxState.IDLE     -> onIdle()
-        SafeBoxState.WRITING  -> onWrite()
-    }
-}
-SafeBoxGlobalStateObserver.addListener(PREF_FILE_NAME, listener)
-
-// later
-SafeBoxGlobalStateObserver.removeListener(PREF_FILE_NAME, listener)
+```text
+SafeBox "preferences" failed to flush
+  batch: put name, remove session
 ```
 
-You can also query the current state:
+## Behavior
 
-```kotlin
-val state = SafeBoxGlobalStateObserver.getCurrentState(PREF_FILE_NAME)
-```
+- The listener is immutable after creation. Repeated `create()` calls for the same file keep the original listener.
+- Omitting the listener or passing `null` retains SafeBox's usual logcat behavior.
+- Callbacks run sequentially on `Dispatchers.IO`, in the order failures are accepted per instance, independently of the storage dispatcher. Keep callbacks short.
+- SafeBox does not also log successfully delivered failures. If the queue fills, new failures go to logcat. If the listener throws, one fallback log includes the trace and both exceptions.
+- Callbacks may begin before `create()` returns. Exceptions preventing creation still propagate to the caller.
+- Observation does not change `commit()` results or replace handling exceptions from SafeBox calls.
+
+## Privacy
+
+Traces include file and key names, but no stored values. Exceptions are passed unchanged. Review both before forwarding them externally.
+
+Logcat fallbacks include these details without application-side redaction.
