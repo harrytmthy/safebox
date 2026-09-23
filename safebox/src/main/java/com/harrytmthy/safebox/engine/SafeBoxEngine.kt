@@ -26,7 +26,7 @@ import com.harrytmthy.safebox.SafeBox.FailureListener
 import com.harrytmthy.safebox.cryptography.CipherProvider
 import com.harrytmthy.safebox.decoder.ByteDecoder
 import com.harrytmthy.safebox.diagnostics.FailureKind
-import com.harrytmthy.safebox.diagnostics.FailureReporter
+import com.harrytmthy.safebox.diagnostics.FailureNotifier
 import com.harrytmthy.safebox.extensions.safeBoxScope
 import com.harrytmthy.safebox.extensions.toBytes
 import com.harrytmthy.safebox.storage.Bytes
@@ -53,7 +53,7 @@ internal class SafeBoxEngine private constructor(
     private val valueCipherProvider: CipherProvider,
     private val ioDispatcher: CoroutineDispatcher,
     private val notifyNullOnClear: Boolean,
-    private val failureReporter: FailureReporter,
+    private val failureNotifier: FailureNotifier,
 ) {
 
     private val entries: MutableMap<Bytes, ByteArray> = ConcurrentHashMap()
@@ -246,13 +246,13 @@ internal class SafeBoxEngine private constructor(
             val (key, action) = entry
             when (action) {
                 is Put -> {
-                    val encryptedKey = key.toEncryptedKey(report = false)
+                    val encryptedKey = key.toEncryptedKey(notify = false)
                     val encryptedValue = action.encodedValue.value.let(valueCipherProvider::encrypt)
                     val supersedes = hasRecoveryEntry(encryptedKey)
                     try {
                         blobStore.write(encryptedKey, encryptedValue, forceNow || supersedes)
                     } catch (e: Exception) {
-                        failureReporter.report(e, FailureKind.PRIMARY_WRITE, entry)
+                        failureNotifier.notify(e, FailureKind.PRIMARY_WRITE, entry)
                         recoveryBlobStore.write(
                             fileName = fileNameBytes,
                             encryptedKey = encryptedKey,
@@ -269,7 +269,7 @@ internal class SafeBoxEngine private constructor(
                     }
                 }
                 is Remove -> {
-                    val encryptedKey = key.toEncryptedKey(report = false)
+                    val encryptedKey = key.toEncryptedKey(notify = false)
                     val supersedes = hasRecoveryEntry(encryptedKey)
                     if (blobStore.contains(encryptedKey)) {
                         blobStore.delete(encryptedKey, forceNow || supersedes)
@@ -324,7 +324,7 @@ internal class SafeBoxEngine private constructor(
                 blobStore.write(encryptedKey, encryptedValue, false)
                 replayedKeys += encryptedKey
             } catch (e: Exception) {
-                failureReporter.report(e, FailureKind.REPLAY)
+                failureNotifier.notify(e, FailureKind.REPLAY)
                 continue
             }
         }
@@ -346,7 +346,7 @@ internal class SafeBoxEngine private constructor(
             try {
                 block()
             } catch (e: Exception) {
-                failureReporter.report(e, FailureKind.LOAD)
+                failureNotifier.notify(e, FailureKind.LOAD)
                 throw e
             } finally {
                 initialReadCompleted.complete(Unit)
@@ -375,13 +375,13 @@ internal class SafeBoxEngine private constructor(
                 }
                 true
             } catch (e: Exception) {
-                failureReporter.reportBatch(e, FailureKind.WRITE, actions, cleared)
+                failureNotifier.notifyBatch(e, FailureKind.WRITE, actions, cleared)
                 false
             }
             try {
                 blobStore.flushDirtyPages()
             } catch (e: Exception) {
-                failureReporter.reportBatch(e, FailureKind.FLUSH, actions, cleared)
+                failureNotifier.notifyBatch(e, FailureKind.FLUSH, actions, cleared)
                 committed = false
             } finally {
                 currentWriteBarrier.complete(Unit)
@@ -410,12 +410,12 @@ internal class SafeBoxEngine private constructor(
                     block()
                 }
             } catch (e: Exception) {
-                failureReporter.reportBatch(e, kind, actions, cleared)
+                failureNotifier.notifyBatch(e, kind, actions, cleared)
             } finally {
                 try {
                     blobStore.flushDirtyPages()
                 } catch (e: Exception) {
-                    failureReporter.reportBatch(e, FailureKind.FLUSH, actions, cleared)
+                    failureNotifier.notifyBatch(e, FailureKind.FLUSH, actions, cleared)
                 } finally {
                     currentWriteBarrier.complete(Unit)
                 }
@@ -460,7 +460,7 @@ internal class SafeBoxEngine private constructor(
             try {
                 val deadKeys = ArrayList<Bytes>()
                 for ((encryptedKey, encryptedValue) in entries) {
-                    if (valueCipherProvider.tryDecrypt(encryptedValue, report = false) == null) {
+                    if (valueCipherProvider.tryDecrypt(encryptedValue, notify = false) == null) {
                         entries.remove(encryptedKey)
                         deadKeys.add(encryptedKey)
                     }
@@ -476,28 +476,28 @@ internal class SafeBoxEngine private constructor(
 
     private fun CipherProvider.tryDecrypt(
         encryptedValue: ByteArray,
-        report: Boolean = true,
+        notify: Boolean = true,
         action: Map.Entry<String, Action>? = null,
     ): ByteArray? =
         try {
             decrypt(encryptedValue)
         } catch (e: AEADBadTagException) {
-            failureReporter.report(e, FailureKind.DECRYPT, action, notifyListener = report)
+            failureNotifier.notify(e, FailureKind.DECRYPT, action, notifyListener = notify)
             scanAndRemoveDeadEntries()
             null
         } catch (e: Exception) {
-            failureReporter.report(e, FailureKind.DECRYPT, action, notifyListener = report)
+            failureNotifier.notify(e, FailureKind.DECRYPT, action, notifyListener = notify)
             throw e
         }
 
     private fun String.toEncryptedKey(
-        report: Boolean = true,
+        notify: Boolean = true,
         action: Map.Entry<String, Action>? = null,
     ): Bytes =
         try {
             keyCipherProvider.encrypt(this.toByteArray()).toBytes()
         } catch (e: Exception) {
-            failureReporter.report(e, FailureKind.ENCRYPT_KEY, action, notifyListener = report)
+            failureNotifier.notify(e, FailureKind.ENCRYPT_KEY, action, notifyListener = notify)
             throw e
         }
 
@@ -508,7 +508,7 @@ internal class SafeBoxEngine private constructor(
         try {
             valueCipherProvider.encrypt(value)
         } catch (e: Exception) {
-            failureReporter.report(e, FailureKind.ENCRYPT_VALUE, action)
+            failureNotifier.notify(e, FailureKind.ENCRYPT_VALUE, action)
             throw e
         }
 
@@ -537,7 +537,7 @@ internal class SafeBoxEngine private constructor(
             val blobStore = SafeBoxBlobStore.create(context, fileName)
             val appOnRPlus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
             val appTargetsRPlus = context.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.R
-            val failureReporter = FailureReporter(fileName, failureListener)
+            val failureNotifier = FailureNotifier(fileName, failureListener)
             return SafeBoxEngine(
                 blobStore = blobStore,
                 recoveryBlobStore = recoveryBlobStore,
@@ -545,7 +545,7 @@ internal class SafeBoxEngine private constructor(
                 valueCipherProvider = valueCipherProvider,
                 ioDispatcher = ioDispatcher,
                 notifyNullOnClear = appOnRPlus && appTargetsRPlus,
-                failureReporter = failureReporter,
+                failureNotifier = failureNotifier,
             )
         }
     }
