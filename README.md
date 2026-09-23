@@ -109,9 +109,9 @@ val b = SafeBox.create(context, "fileB")
 assertTrue(a1 !== b)    // different filenames = different instances
 ```
 
-> Repeating `SafeBox.create(context, fileName)` returns the existing instance for that `fileName`. When an instance already exists, **all parameters are ignored** except a non-null `stateListener`, which replaces the current listener.
+> Repeating `SafeBox.create(context, fileName)` returns the existing instance for that `fileName`. When an instance already exists, **all parameters are ignored**, including `failureListener`.
 
-> Need lifecycle hooks for diagnostics or analytics? ➡️ [Read the Observability Guide](docs/OBSERVABILITY.md)
+> To observe failures through `FailureListener`, see the [Observability Guide](docs/OBSERVABILITY.md).
 
 ## Migrating from EncryptedSharedPreferences
 
