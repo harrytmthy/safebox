@@ -171,10 +171,6 @@ internal class SafeBoxEngine private constructor(
         writeDebounceJob = safeBoxScope.launch(ioDispatcher) {
             delay(WRITE_DEBOUNCE_TIMEOUT_MS)
             applyPendingActions()
-        }.apply {
-            invokeOnCompletion {
-                writeDebounceJob = null
-            }
         }
     }
 

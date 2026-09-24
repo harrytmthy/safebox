@@ -33,9 +33,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -359,6 +362,35 @@ class SafeBoxTest {
         assertEquals(-1, safeBox.getInt("2", -1))
         assertEquals(-1, safeBox.getInt("1", -1))
         assertEquals(-1, safeBox.getInt("0", -1))
+    }
+
+    @Test
+    fun clear_afterReplacingDebounceJob_shouldNotRestorePendingValues() = runBlocking {
+        val scheduler = TestCoroutineScheduler()
+        safeBox = createSafeBox(ioDispatcher = StandardTestDispatcher(scheduler))
+        scheduler.runCurrent()
+
+        safeBox.edit().putString("name", "Luna").apply()
+        scheduler.runCurrent()
+        safeBox.edit().putString("name", "Luper").apply()
+        scheduler.runCurrent()
+
+        // Run queued writes without advancing the debounce timer while commit blocks.
+        val committed = async(Dispatchers.IO) {
+            safeBox.edit().clear().commit()
+        }
+        withTimeout(10.seconds) {
+            while (!committed.isCompleted) {
+                scheduler.runCurrent()
+                delay(1)
+            }
+        }
+        assertTrue(committed.await())
+        assertNull(safeBox.getString("name", null))
+
+        scheduler.advanceUntilIdle()
+        safeBox = recreateSafeBox()
+        assertNull(safeBox.getString("name", null))
     }
 
     @Test
