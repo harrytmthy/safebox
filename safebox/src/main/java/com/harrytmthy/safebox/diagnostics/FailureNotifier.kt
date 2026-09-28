@@ -19,6 +19,7 @@ package com.harrytmthy.safebox.diagnostics
 import android.util.Log
 import com.harrytmthy.safebox.SafeBox
 import com.harrytmthy.safebox.SafeBox.Action
+import com.harrytmthy.safebox.engine.SafeBoxEngine.EncryptedAction
 import com.harrytmthy.safebox.extensions.safeBoxScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +60,7 @@ internal class FailureNotifier(
     fun notifyBatch(
         error: Exception,
         kind: FailureKind,
-        actions: Map<String, Action>?,
+        actions: Map<String, EncryptedAction>?,
         cleared: Boolean,
     ) {
         if (listener == null) {
@@ -76,7 +77,7 @@ internal class FailureNotifier(
                 if (cleared) {
                     append("clear")
                 }
-                for ((index, entry) in actions.entries.withIndex()) {
+                for ((index, entry) in actions.values.withIndex()) {
                     if (index == MAX_TRACED_ACTIONS) {
                         break
                     }
