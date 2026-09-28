@@ -187,6 +187,36 @@ class SafeBoxBlobStoreTest {
     }
 
     @Test
+    fun write_withSameSize_shouldPreserveOffsetsAndNeighboringRecords() = runTest {
+        val first = "first".toBytes()
+        val middle = "middle".toBytes()
+        val last = "last".toBytes()
+        val initial = byteArrayOf(1, 2, 3)
+        val replacement = byteArrayOf(4, 5, 6)
+        for (key in listOf(first, middle, last)) {
+            blobStore.write(key, initial, false)
+        }
+        val offsets = blobStore.entryMetas.mapValues { it.value.offset }
+
+        blobStore.write(middle, replacement, false)
+        assertEquals(offsets, blobStore.entryMetas.mapValues { it.value.offset })
+        blobStore.flushDirtyPages()
+        assertReopenedStore { entries ->
+            assertContentEquals(initial, entries[first])
+            assertContentEquals(replacement, entries[middle])
+            assertContentEquals(initial, entries[last])
+        }
+
+        blobStore.delete(first)
+        blobStore.write(last, replacement, true)
+        assertReopenedStore { entries ->
+            assertFalse(entries.containsKey(first))
+            assertContentEquals(replacement, entries[middle])
+            assertContentEquals(replacement, entries[last])
+        }
+    }
+
+    @Test
     fun write_withSmallerNewSize_shouldOverwriteExistingValue() = runTest {
         val key = "alpha".toByteArray().toBytes()
         val firstValue = "12345".toByteArray()

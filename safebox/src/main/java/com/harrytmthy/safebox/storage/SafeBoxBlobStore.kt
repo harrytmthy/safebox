@@ -134,12 +134,12 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
     }
 
     /**
-     * Appends a new encrypted key–value entry at a page tail.
+     * Writes an encrypted key–value entry.
      *
-     * If the key already exists, the old entry's page is compacted, and the new entry is
-     * appended at the tail of a suitable page. Pages are scanned from the first to the last
-     * to reuse reclaimed space. A new page is allocated if none fits. Entries never cross
-     * page boundaries.
+     * Matching-size replacements overwrite the value in place. Other replacements compact the
+     * old entry's page and append at a suitable page tail. Pages are scanned from the first to
+     * the last to reuse reclaimed space. A new page is allocated if none fits. Entries never
+     * cross page boundaries.
      *
      * @param encryptedKey The encrypted key to store.
      * @param encryptedValue The encrypted value to associate with the key.
@@ -154,6 +154,13 @@ internal class SafeBoxBlobStore private constructor(private val file: File) {
         }
         writeMutex.withLock {
             val entry = entryMetas[encryptedKey]
+            if (entry != null && entry.size == entrySize) {
+                val buffer = buffers[entry.page]
+                buffer.position(entry.offset + HEADER_SIZE + encryptedKey.value.size)
+                buffer.put(encryptedValue)
+                markDirty(entry.page, forceNow)
+                return@withLock
+            }
             var page = entry?.page ?: buffers.lastIndex
             for (currentPage in buffers.indices) {
                 val prevSize = entry?.size?.takeIf { currentPage == entry.page } ?: 0
