@@ -21,6 +21,8 @@ import android.os.Process
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.harrytmthy.safebox.SafeBox.Action
+import com.harrytmthy.safebox.engine.SafeBoxEngine.EncryptedAction
+import com.harrytmthy.safebox.extensions.toBytes
 import org.junit.runner.RunWith
 import java.io.IOException
 import java.util.UUID
@@ -76,7 +78,9 @@ class FailureNotifierTest {
         notifier.notifyBatch(
             original,
             FailureKind.WRITE,
-            linkedMapOf("token" to Action.Remove),
+            linkedMapOf(
+                "token" to EncryptedAction("token", Action.Remove, "token".toBytes(), null),
+            ),
             false,
         )
         // The next callback runs only after the failed delivery has finished logging.
@@ -126,7 +130,9 @@ class FailureNotifierTest {
             notifier.notifyBatch(
                 overflow,
                 FailureKind.WRITE,
-                linkedMapOf("token" to Action.Remove),
+                linkedMapOf(
+                    "token" to EncryptedAction("token", Action.Remove, "token".toBytes(), null),
+                ),
                 false,
             )
 

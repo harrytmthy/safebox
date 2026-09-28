@@ -725,7 +725,6 @@ class SafeBoxTest {
         )
         safeBox.edit().putString("oversized", "x".repeat(2 * 1024 * 1024)).apply()
         valueCipherProvider.encryptFailure = cause
-        valueCipherProvider.failOnEncryptCall = 3
 
         val thrown = assertFailsWith<IOException> {
             safeBox.edit().putString("new-action", "value").commit()
@@ -887,32 +886,60 @@ class SafeBoxTest {
     }
 
     @Test
-    fun commit_whenPersistenceKeyEncryptionFails_shouldNotifyOnceWithBatchContext() {
-        val failures = FailureRecorder()
-        val cause = IOException("Injected encryption failure")
-        val keyCipherProvider = FaultyCipherProvider().apply {
-            encryptFailure = cause
-            failOnEncryptCall = 2
+    fun commit_shouldReuseEncryptedMutationForPersistence() {
+        val keyCipher = FaultyCipherProvider()
+        val valueCipher = FaultyCipherProvider()
+        safeBox = createSafeBox(cipherProviders = keyCipher to valueCipher)
+
+        assertTrue(safeBox.edit().putInt("counter", 1).commit())
+        assertEquals(1, keyCipher.encryptCalls)
+        assertEquals(1, valueCipher.encryptCalls)
+        assertTrue(safeBox.edit().putInt("counter", 2).commit())
+        assertEquals(2, keyCipher.encryptCalls)
+        assertEquals(2, valueCipher.encryptCalls)
+        assertTrue(safeBox.edit().putInt("counter", 2).commit())
+        assertEquals(3, keyCipher.encryptCalls)
+        assertEquals(2, valueCipher.encryptCalls)
+
+        engines.getValue(fileName).closeBlobStoreChannel()
+        SafeBox.instances.remove(fileName)
+        safeBox = createSafeBox(cipherProviders = keyCipher to valueCipher)
+        assertEquals(2, safeBox.getInt("counter", -1))
+        val beforeRemove = keyCipher.encryptCalls
+        assertTrue(safeBox.edit().remove("counter").commit())
+        assertEquals(beforeRemove + 1, keyCipher.encryptCalls)
+    }
+
+    @Test
+    fun apply_whenMutationsMerge_shouldPersistTheirPreparedValues() {
+        val scheduler = TestCoroutineScheduler()
+        safeBox = createSafeBox(ioDispatcher = StandardTestDispatcher(scheduler))
+        scheduler.runCurrent()
+
+        safeBox.edit().putInt("counter", 1).putInt("removed", 1).apply()
+        safeBox.edit().putInt("counter", 2).remove("removed").apply()
+        scheduler.advanceUntilIdle()
+        safeBox = recreateSafeBox()
+
+        assertEquals(2, safeBox.getInt("counter", -1))
+        assertFalse(safeBox.contains("removed"))
+    }
+
+    @Test
+    fun put_whenUnchangedAfterRecoveryForceFailure_shouldRetryPersistence() = runTest {
+        withForceFailureStore { fixture ->
+            safeBox = divertNextWriteToRecovery(recoveryBlobStore = fixture.store)
+            fixture.failForce = true
+            assertFalse(safeBox.edit().putString(RECOVERY_KEY, STALE_VALUE).commit())
+            val attempts = fixture.forceAttempts
+
+            fixture.failForce = false
+            assertTrue(safeBox.edit().putString(RECOVERY_KEY, STALE_VALUE).commit())
+            assertTrue(fixture.forceAttempts > attempts)
+            safeBox = recreateSafeBox(recoveryBlobStore = fixture.store)
+
+            assertEquals(STALE_VALUE, safeBox.getString(RECOVERY_KEY, null))
         }
-        safeBox = createSafeBox(
-            cipherProviders = keyCipherProvider to FaultyCipherProvider(),
-            failureListener = failures,
-        )
-
-        assertFalse(safeBox.edit().putString("token", "secret-value").commit())
-
-        val (error, trace) = failures.awaitFailure()
-        assertSame(cause, error)
-        assertTrue(trace.contains("failed to write"))
-        assertTrue(trace.contains("put token"))
-        assertTrue(trace.contains("batch: put token"))
-        assertFalse(trace.contains("secret-value"))
-        failures.assertNoFailure()
-        val nextCause = IOException("Next encryption failure")
-        keyCipherProvider.encryptFailure = nextCause
-        keyCipherProvider.failOnEncryptCall = null
-        assertFailsWith<IOException> { safeBox.edit().putString("next", "value").commit() }
-        assertSame(nextCause, failures.awaitFailure().first)
     }
 
     @Test
@@ -1223,17 +1250,12 @@ class SafeBoxTest {
 
         var decryptFailure: Exception? = null
 
-        var failOnEncryptCall: Int? = null
-
-        private var encryptCalls = 0
+        var encryptCalls = 0
+            private set
 
         override fun encrypt(plaintext: ByteArray): ByteArray {
             encryptCalls++
-            encryptFailure?.let {
-                if (failOnEncryptCall == null || encryptCalls == failOnEncryptCall) {
-                    throw it
-                }
-            }
+            encryptFailure?.let { throw it }
             return plaintext
         }
 
