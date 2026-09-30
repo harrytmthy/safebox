@@ -146,7 +146,7 @@ internal class SafeBoxEngine private constructor(
         actions.clear() // Prevents stale mutations on reused editor instance
         val encryptedActions = updateEntries(snapshot, cleared)
         return launchWriteBlocking(encryptedActions, cleared) {
-            applyChanges(encryptedActions, cleared, true)
+            applyChanges(encryptedActions, cleared)
         }
     }
 
@@ -185,7 +185,7 @@ internal class SafeBoxEngine private constructor(
             actions = pendingActionsSnapshot,
             cleared = shouldClear,
         ) {
-            applyChanges(pendingActionsSnapshot, shouldClear, false)
+            applyChanges(pendingActionsSnapshot, shouldClear)
         }
     }
 
@@ -246,11 +246,10 @@ internal class SafeBoxEngine private constructor(
     private suspend fun applyChanges(
         entries: LinkedHashMap<String, EncryptedAction>,
         cleared: Boolean,
-        forceNow: Boolean,
     ) {
         if (cleared) {
             val supersedes = recoveryEntries.isNotEmpty()
-            blobStore.deleteAll(forceNow || supersedes)
+            blobStore.deleteAll(supersedes)
             if (supersedes) {
                 discardRecoveryEntries()
             }
@@ -262,7 +261,7 @@ internal class SafeBoxEngine private constructor(
                     val encryptedValue = entry.encryptedValue!!
                     val supersedes = hasRecoveryEntry(encryptedKey)
                     try {
-                        blobStore.write(encryptedKey, encryptedValue, forceNow || supersedes)
+                        blobStore.write(encryptedKey, encryptedValue, supersedes)
                     } catch (e: Exception) {
                         failureNotifier.notify(e, FailureKind.PRIMARY_WRITE, entry)
                         recoveryBlobStore.write(
@@ -283,7 +282,7 @@ internal class SafeBoxEngine private constructor(
                 is Remove -> {
                     val supersedes = hasRecoveryEntry(encryptedKey)
                     if (blobStore.contains(encryptedKey)) {
-                        blobStore.delete(encryptedKey, forceNow || supersedes)
+                        blobStore.delete(encryptedKey, supersedes)
                     }
                     if (supersedes) {
                         discardRecoveryEntry(encryptedKey)
