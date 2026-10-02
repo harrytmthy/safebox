@@ -172,6 +172,9 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
      * contains the trace and both exceptions. Delivery may begin before creation returns.
      * Failures preventing instance construction still propagate directly to the caller.
      *
+     * Cleanup notifications also report confirmed removal of unreadable records, using one of
+     * the original authentication failures as the cause. Detection alone does not confirm removal.
+     *
      * The trace includes key names but excludes stored values. The original [Throwable] is passed
      * unchanged, so applications should review both fields before forwarding them externally.
      * Fallback logs include key names and exception details without application-side redaction.

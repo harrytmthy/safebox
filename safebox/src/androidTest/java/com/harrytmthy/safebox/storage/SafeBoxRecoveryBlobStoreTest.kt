@@ -84,6 +84,24 @@ class SafeBoxRecoveryBlobStoreTest {
     }
 
     @Test
+    fun getEncryptedKeys_shouldReturnADetachedSnapshotForRequestedFile() = runTest {
+        val firstKey = "first".toBytes()
+        val secondKey = "second".toBytes()
+        val otherKey = "other".toBytes()
+        assertTrue(recovery.getEncryptedKeys(firstFile).isEmpty())
+        recovery.write(firstFile, firstKey, byteArrayOf(1), forceNow = true)
+        recovery.write(firstFile, secondKey, byteArrayOf(2), forceNow = true)
+        recovery.write(secondFile, otherKey, byteArrayOf(3), forceNow = true)
+
+        val snapshot = recovery.getEncryptedKeys(firstFile)
+        recovery.delete(firstFile, firstKey)
+
+        assertEquals(setOf(firstKey, secondKey), snapshot)
+        assertEquals(setOf(secondKey), recovery.getEncryptedKeys(firstFile))
+        assertEquals(setOf(otherKey), recovery.getEncryptedKeys(secondFile))
+    }
+
+    @Test
     fun write_sameKey_shouldReplaceAndLoadLatest() = runTest {
         val key = "key".toBytes()
         val smallValue = "s".toByteArray()

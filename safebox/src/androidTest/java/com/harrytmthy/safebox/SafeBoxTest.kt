@@ -708,12 +708,16 @@ class SafeBoxTest {
 
         val (primaryError, primaryTrace) = failures.awaitFailure()
         assertTrue(primaryError is IllegalStateException)
-        assertEquals("SafeBox \"$fileName\" primary write failed\n  put oversized", primaryTrace)
+        assertEquals(
+            expected = "SafeBox \"$fileName\" write: primary write failed\n  put oversized",
+            actual = primaryTrace,
+        )
         val (batchError, batchTrace) = failures.awaitFailure()
         assertTrue(batchError is IllegalStateException)
         assertEquals(
-            "SafeBox \"$fileName\" failed to write\n  batch: put first, put oversized",
-            batchTrace,
+            expected = "SafeBox \"$fileName\" write: failed to write a recovery record\n" +
+                "  batch: put first, put oversized",
+            actual = batchTrace,
         )
         failures.assertNoFailure()
     }
@@ -768,7 +772,7 @@ class SafeBoxTest {
             repeat(2) {
                 val (error, trace) = failures.awaitFailure()
                 assertTrue(error is ClosedChannelException)
-                assertEquals("SafeBox \"$fileName\" failed to replay recovered entries", trace)
+                assertEquals("SafeBox \"$fileName\" recovery replay: primary write failed", trace)
             }
         }
         failures.assertNoFailure()
@@ -793,7 +797,7 @@ class SafeBoxTest {
             val (recoveryError, recoveryTrace) = failures.awaitFailure()
             assertTrue(recoveryError is IOException)
             assertEquals("Injected recovery force failure", recoveryError.message)
-            assertTrue(recoveryTrace.contains("failed to write"))
+            assertTrue(recoveryTrace.contains("write: failed to flush recovery storage"))
             assertTrue(recoveryTrace.contains("put $RECOVERY_KEY"))
             failures.assertNoFailure()
             fixture.failForce = false
@@ -818,10 +822,37 @@ class SafeBoxTest {
 
         val (error, trace) = failures.awaitFailure()
         assertSame(cause, error)
-        assertTrue(trace.contains("failed to decrypt a preference"))
+        assertTrue(trace.contains("read: failed to decrypt a preference value"))
         assertTrue(safeBox.contains("token"))
         runCurrent()
         assertFalse(safeBox.contains("token"))
+        val (cleanupCause, cleanupTrace) = failures.awaitFailure()
+        assertSame(cause, cleanupCause)
+        assertEquals("SafeBox \"$fileName\" cleanup: removed 1 unreadable record", cleanupTrace)
+        failures.assertNoFailure()
+    }
+
+    @Test
+    fun cleanup_whenVerificationThrowsANewException_shouldRetainTheReadFailureAsCause() {
+        val failures = FailureRecorder()
+        val scheduler = TestCoroutineScheduler()
+        val valueCipher = FaultyCipherProvider()
+        safeBox = createSafeBox(
+            ioDispatcher = StandardTestDispatcher(scheduler),
+            cipherProviders = FaultyCipherProvider() to valueCipher,
+            failureListener = failures,
+        )
+        scheduler.runCurrent()
+        assertTrue(safeBox.edit().putInt("counter", 1).commit())
+        valueCipher.freshAuthenticationFailures = true
+
+        assertEquals(-1, safeBox.getInt("counter", -1))
+        val (cause, _) = failures.awaitFailure()
+        scheduler.runCurrent()
+        val (cleanupCause, trace) = failures.awaitFailure()
+
+        assertSame(cause, cleanupCause)
+        assertEquals("SafeBox \"$fileName\" cleanup: removed 1 unreadable record", trace)
         failures.assertNoFailure()
     }
 
@@ -841,9 +872,151 @@ class SafeBoxTest {
 
         val (error, trace) = failures.awaitFailure()
         assertSame(cause, error)
-        assertTrue(trace.contains("failed to decrypt a preference"))
+        assertTrue(trace.contains("read: failed to decrypt a preference key"))
         assertNull(safeBox.getString("token", null))
+        val (cleanupCause, cleanupTrace) = failures.awaitFailure()
+        assertSame(cause, cleanupCause)
+        assertTrue(cleanupTrace.contains("cleanup: removed 1 unreadable record"))
         failures.assertNoFailure()
+    }
+
+    @Test
+    fun commit_whenExistingValueCannotBeDecrypted_shouldReportWriteContext() {
+        val failures = FailureRecorder()
+        val valueCipher = FaultyCipherProvider()
+        safeBox = createSafeBox(
+            cipherProviders = FaultyCipherProvider() to valueCipher,
+            failureListener = failures,
+        )
+        assertTrue(safeBox.edit().putInt("counter", 1).commit())
+        val cause = IOException("Temporary value decryption failure")
+        valueCipher.decryptFailure = cause
+
+        assertSame(
+            cause,
+            assertFailsWith<IOException> {
+                safeBox.edit().putInt("counter", 2).commit()
+            },
+        )
+        val (error, trace) = failures.awaitFailure()
+        assertSame(cause, error)
+        assertEquals(
+            "SafeBox \"$fileName\" write: failed to decrypt a preference value\n  put counter",
+            trace,
+        )
+        failures.assertNoFailure()
+        valueCipher.decryptFailure = null
+        assertEquals(1, safeBox.getInt("counter", -1))
+    }
+
+    @Test
+    fun load_whenSeveralKeysCannotBeDecrypted_shouldReportConfirmedCleanupCount() {
+        val keyCipher = FaultyCipherProvider()
+        val providers = keyCipher to FaultyCipherProvider()
+        safeBox = createSafeBox(cipherProviders = providers)
+        assertTrue(
+            actual = safeBox.edit().putInt("first", 1).putInt("second", 2).putInt("third", 3)
+                .commit(),
+        )
+        engines.getValue(fileName).closeBlobStoreChannel()
+        SafeBox.instances.remove(fileName)
+        val cause = AEADBadTagException("Stored keys failed authentication")
+        keyCipher.decryptFailure = cause
+        val scheduler = TestCoroutineScheduler()
+        val failures = FailureRecorder()
+        safeBox = createSafeBox(
+            ioDispatcher = StandardTestDispatcher(scheduler),
+            cipherProviders = providers,
+            failureListener = failures,
+        )
+        scheduler.runCurrent()
+
+        repeat(3) {
+            val (error, trace) = failures.awaitFailure()
+            assertSame(cause, error)
+            assertEquals(
+                expected = "SafeBox \"$fileName\" initial load: failed to decrypt a preference key",
+                actual = trace,
+            )
+        }
+        val (error, trace) = failures.awaitFailure()
+        assertSame(cause, error)
+        assertEquals(
+            "SafeBox \"$fileName\" cleanup: removed 3 unreadable records",
+            trace,
+        )
+        failures.assertNoFailure()
+        keyCipher.decryptFailure = null
+        engines.getValue(fileName).closeBlobStoreChannel()
+        SafeBox.instances.remove(fileName)
+        safeBox = createSafeBox(cipherProviders = providers)
+        assertTrue(safeBox.all.isEmpty())
+    }
+
+    @Test
+    fun cleanup_whenPrimaryFlushFails_shouldNotReportConfirmedRemoval() {
+        val valueCipher = FaultyCipherProvider()
+        val failures = FailureRecorder()
+        val scheduler = TestCoroutineScheduler()
+        safeBox = createSafeBox(
+            ioDispatcher = StandardTestDispatcher(scheduler),
+            cipherProviders = FaultyCipherProvider() to valueCipher,
+            failureListener = failures,
+        )
+        scheduler.runCurrent()
+        assertTrue(safeBox.edit().putString("first", "a".repeat(600_000)).commit())
+        assertTrue(safeBox.edit().putString("second", "b".repeat(600_000)).commit())
+        engines.getValue(fileName).closeBlobStoreChannel()
+        val cause = AEADBadTagException("Value authentication failed")
+        valueCipher.decryptFailure = cause
+
+        assertNull(safeBox.getString("first", null))
+        scheduler.runCurrent()
+
+        val (error, detectionTrace) = failures.awaitFailure()
+        assertSame(cause, error)
+        assertTrue(detectionTrace.contains("read: failed to decrypt a preference value"))
+        val (flushError, flushTrace) = failures.awaitFailure()
+        assertTrue(flushError is ClosedChannelException)
+        assertEquals("SafeBox \"$fileName\" cleanup: failed to flush primary storage", flushTrace)
+        failures.assertNoFailure()
+    }
+
+    @Test
+    fun cleanup_whenRecoveryRetirementFails_shouldNotReportConfirmedRemoval() = runTest {
+        withForceFailureStore { fixture ->
+            val keyCipher = FaultyCipherProvider()
+            val providers = keyCipher to FaultyCipherProvider()
+            safeBox = createSafeBox(cipherProviders = providers, recoveryBlobStore = fixture.store)
+            assertTrue(safeBox.edit().putInt("bad", 1).commit())
+            engines.getValue(fileName).closeBlobStoreChannel()
+            val primary = SafeBoxBlobStore.create(context, fileName)
+            val records = primary.loadPersistedEntries()
+            primary.closeWhenIdle()
+            val key = "bad".toByteArray().toBytes()
+            fixture.store.write(fileName.toBytes(), key, records.getValue(key), forceNow = true)
+            SafeBox.instances.remove(fileName)
+            keyCipher.unreadableKey = "bad"
+            fixture.failForce = true
+            val failures = FailureRecorder()
+            safeBox = createSafeBox(
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+                cipherProviders = providers,
+                recoveryBlobStore = fixture.store,
+                failureListener = failures,
+            )
+            runCurrent()
+
+            val (cause, detectionTrace) = failures.awaitFailure()
+            assertTrue(cause is AEADBadTagException)
+            assertTrue(detectionTrace.contains("initial load: failed to decrypt a preference key"))
+            val (cleanupError, cleanupTrace) = failures.awaitFailure()
+            assertTrue(cleanupError is IOException)
+            assertEquals("Injected recovery force failure", cleanupError.message)
+            assertTrue(cleanupTrace.contains("cleanup: failed to remove a recovery record"))
+            failures.assertNoFailure()
+            fixture.failForce = false
+        }
     }
 
     @Test
@@ -1088,7 +1261,7 @@ class SafeBoxTest {
             scheduler.advanceUntilIdle()
             val (writeError, writeTrace) = failures.awaitFailure()
             assertTrue(writeError is ReadOnlyBufferException)
-            assertTrue(writeTrace.contains("failed to write"))
+            assertTrue(writeTrace.contains("write: failed to load primary storage"))
             assertEquals(newValue, safeBox.getString("second", null))
         } finally {
             buffers[0] = firstBuffer
@@ -1132,8 +1305,17 @@ class SafeBoxTest {
 
         assertFalse(safeBox.contains("bad"))
         assertEquals(2, safeBox.getInt("good", -1))
+        val (keyCause, keyTrace) = failures.awaitFailure()
+        assertTrue(keyCause is AEADBadTagException)
+        assertTrue(keyTrace.contains("initial load: failed to decrypt a preference key"))
+        val (cleanupCause, cleanupTrace) = failures.awaitFailure()
+        assertSame(keyCause, cleanupCause)
+        assertTrue(cleanupTrace.contains("cleanup: removed 1 unreadable record"))
         failures.assertNoFailure()
-        assertFalse(runBlocking { recovery.loadPersistedEntries(fileName.toBytes()) }.containsKey(badKey))
+        assertFalse(
+            actual = runBlocking { recovery.loadPersistedEntries(fileName.toBytes()) }
+                .containsKey(badKey),
+        )
 
         engines.getValue(fileName).closeBlobStoreChannel()
         SafeBox.instances.remove(fileName)
@@ -1266,7 +1448,11 @@ class SafeBoxTest {
         for (cause in additionalFailures.take(16)) {
             val (error, trace) = failures.awaitFailure()
             assertSame(cause, error)
-            assertEquals("SafeBox \"$fileName\" failed to encrypt a preference value\n  put key", trace)
+            assertEquals(
+                expected = "SafeBox \"$fileName\" write: failed to encrypt a preference value\n" +
+                    "  put key",
+                actual = trace,
+            )
         }
         assertFalse(callbacksOverlapped.get())
         failures.assertNoFailure()
@@ -1275,7 +1461,11 @@ class SafeBoxTest {
         assertFailsWith<IOException> { safeBox.edit().putInt("key", 2).commit() }
         val (error, trace) = failures.awaitFailure()
         assertSame(next, error)
-        assertEquals("SafeBox \"$fileName\" failed to encrypt a preference value\n  put key", trace)
+        assertEquals(
+            expected = "SafeBox \"$fileName\" write: failed to encrypt a preference value\n" +
+                "  put key",
+            actual = trace,
+        )
     }
 
     @Test
@@ -1289,7 +1479,7 @@ class SafeBoxTest {
         assertFalse(editor.commit())
 
         val (_, firstTrace) = failures.awaitFailure()
-        assertEquals("SafeBox \"$fileName\" primary write failed\n  put first", firstTrace)
+        assertEquals("SafeBox \"$fileName\" write: primary write failed\n  put first", firstTrace)
         assertTrue(failures.awaitFailure().second.contains("failed to write"))
         assertFalse(editor.putString("second", "x".repeat(2 * 1024 * 1024)).commit())
         val (_, secondTrace) = failures.awaitFailure()
@@ -1484,6 +1674,8 @@ class SafeBoxTest {
 
         var unreadableKey: String? = null
 
+        var freshAuthenticationFailures = false
+
         var encryptCalls = 0
             private set
 
@@ -1494,6 +1686,9 @@ class SafeBoxTest {
         }
 
         override fun decrypt(ciphertext: ByteArray): ByteArray {
+            if (freshAuthenticationFailures) {
+                throw AEADBadTagException("Fresh authentication failure")
+            }
             decryptFailure?.let { throw it }
             if (unreadableKey != null && ciphertext.contentEquals(unreadableKey!!.toByteArray())) {
                 throw AEADBadTagException("Injected key authentication failure")

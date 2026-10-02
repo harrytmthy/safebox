@@ -52,8 +52,7 @@ internal class EntryIndex(private val keyCipherProvider: CipherProvider) {
         return Lookup(token, entries[token])
     }
 
-    fun load(encryptedKey: Bytes, encryptedValue: ByteArray) {
-        val key = keyCipherProvider.decrypt(encryptedKey.value).toString(Charsets.UTF_8)
+    fun load(key: String, encryptedKey: Bytes, encryptedValue: ByteArray) {
         val token = token(key)
         entries[token] = Entry(token, encryptedKey, encryptedValue)
     }
@@ -76,7 +75,10 @@ internal class EntryIndex(private val keyCipherProvider: CipherProvider) {
     fun values(): Collection<Entry> = entries.values
 
     fun decodeKey(entry: Entry): String =
-        keyCipherProvider.decrypt(entry.encryptedKey.value).toString(Charsets.UTF_8)
+        decodeKey(entry.encryptedKey)
+
+    fun decodeKey(encryptedKey: Bytes): String =
+        keyCipherProvider.decrypt(encryptedKey.value).toString(Charsets.UTF_8)
 
     private fun token(key: String): Token =
         synchronized(mac) {

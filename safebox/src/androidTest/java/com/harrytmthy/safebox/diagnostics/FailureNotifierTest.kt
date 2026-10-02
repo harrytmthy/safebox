@@ -29,6 +29,7 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import javax.crypto.AEADBadTagException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -43,7 +44,13 @@ class FailureNotifierTest {
         val marker = UUID.randomUUID().toString()
         val notifier = FailureNotifier("preferences", null)
 
-        notifier.notifyBatch(IOException(marker), FailureKind.WRITE, emptyMap(), false)
+        notifier.notifyBatch(
+            error = IOException(marker),
+            kind = FailureKind.PRIMARY_WRITE,
+            operation = FailureOperation.WRITE,
+            actions = emptyMap(),
+            cleared = false,
+        )
 
         val logs = readLogs()
         assertTrue(logs.contains("Failed to commit changes."))
@@ -52,12 +59,33 @@ class FailureNotifierTest {
     }
 
     @Test
+    fun notifyRemoval_withoutListener_shouldLogConfirmedRemoval() {
+        val marker = UUID.randomUUID().toString()
+        val fileName = "preferences-$marker"
+        val cause = AEADBadTagException("unreadable-$marker")
+        val notifier = FailureNotifier(fileName, null)
+
+        notifier.notifyRemoval(cause, 3)
+
+        val logs = readLogs()
+        assertTrue(logs.contains("SafeBox \"$fileName\" cleanup: removed 3 unreadable records"))
+        assertTrue(logs.contains("AEADBadTagException: unreadable-$marker"))
+        assertEquals(1, logs.split("unreadable-$marker").size - 1)
+    }
+
+    @Test
     fun notifyBatch_whenListenerSucceeds_shouldNotAlsoLogFailure() {
         val marker = UUID.randomUUID().toString()
         val delivered = CountDownLatch(1)
         val notifier = FailureNotifier("preferences") { _, _ -> delivered.countDown() }
 
-        notifier.notifyBatch(IOException(marker), FailureKind.WRITE, emptyMap(), false)
+        notifier.notifyBatch(
+            error = IOException(marker),
+            kind = FailureKind.PRIMARY_WRITE,
+            operation = FailureOperation.WRITE,
+            actions = emptyMap(),
+            cleared = false,
+        )
 
         assertTrue(delivered.await(5, TimeUnit.SECONDS))
         assertFalse(readLogs().contains(marker))
@@ -77,21 +105,26 @@ class FailureNotifierTest {
 
         notifier.notifyBatch(
             original,
-            FailureKind.WRITE,
+            FailureKind.PRIMARY_WRITE,
+            FailureOperation.WRITE,
             linkedMapOf(
                 "token" to EncryptedAction("token", Action.Remove, "token".toBytes(), null),
             ),
             false,
         )
         // The next callback runs only after the failed delivery has finished logging.
-        notifier.notify(IOException("next"), FailureKind.LOAD)
+        notifier.notify(
+            error = IOException("next"),
+            kind = FailureKind.PRIMARY_LOAD,
+            operation = FailureOperation.INITIAL_LOAD,
+        )
         assertTrue(drained.await(5, TimeUnit.SECONDS))
 
         val logs = readLogs()
         assertTrue(
             logs.contains(
                 "Failure listener threw while handling:\n" +
-                    "SafeBox \"preferences\" failed to write\n  batch: remove token\n" +
+                    "SafeBox \"preferences\" write: primary write failed\n  batch: remove token\n" +
                     "Original failure:\njava.io.IOException: ${original.message}",
             ),
         )
@@ -120,16 +153,17 @@ class FailureNotifierTest {
         }
         val queued = List(16) { IOException("queued-$it") }
         val overflow = IOException("overflow-${UUID.randomUUID()}")
-        notifier.notify(first, FailureKind.LOAD)
+        notifier.notify(first, FailureKind.PRIMARY_LOAD, FailureOperation.INITIAL_LOAD)
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             for (error in queued) {
-                notifier.notify(error, FailureKind.LOAD)
+                notifier.notify(error, FailureKind.PRIMARY_LOAD, FailureOperation.INITIAL_LOAD)
             }
 
             notifier.notifyBatch(
                 overflow,
-                FailureKind.WRITE,
+                FailureKind.PRIMARY_WRITE,
+                FailureOperation.WRITE,
                 linkedMapOf(
                     "token" to EncryptedAction("token", Action.Remove, "token".toBytes(), null),
                 ),
@@ -140,7 +174,8 @@ class FailureNotifierTest {
             assertTrue(
                 logs.contains(
                     "Failure listener queue full. Logging this failure instead:\n" +
-                        "SafeBox \"preferences\" failed to write\n  batch: remove token\n" +
+                        "SafeBox \"preferences\" write: primary write failed\n" +
+                        "  batch: remove token\n" +
                         "java.io.IOException: ${overflow.message}",
                 ),
             )
@@ -152,10 +187,13 @@ class FailureNotifierTest {
         for (error in listOf(first) + queued) {
             val failure = delivered.poll(5, TimeUnit.SECONDS)
             assertSame(error, failure?.first)
-            assertEquals("SafeBox \"preferences\" failed to load stored entries", failure?.second)
+            assertEquals(
+                expected = "SafeBox \"preferences\" initial load: failed to load primary storage",
+                actual = failure?.second,
+            )
         }
         val next = IOException("after draining")
-        notifier.notify(next, FailureKind.LOAD)
+        notifier.notify(next, FailureKind.PRIMARY_LOAD, FailureOperation.INITIAL_LOAD)
         assertSame(next, delivered.poll(5, TimeUnit.SECONDS)?.first)
     }
 
