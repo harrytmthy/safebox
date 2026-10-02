@@ -38,18 +38,18 @@ internal class FailureNotifier(
     fun notify(
         error: Exception,
         kind: FailureKind,
+        operation: FailureOperation,
         action: Map.Entry<String, Action>? = null,
-        notifyListener: Boolean = true,
     ) {
         if (listener == null) {
             logFailure(error, kind)
             return
         }
-        if (!notifyListener || error is CancellationException) {
+        if (error is CancellationException) {
             return
         }
         val trace = buildString {
-            appendHeader(kind.description)
+            appendHeader(operation, kind.description)
             if (action != null) {
                 append("\n  ").append(action.value.describe(action.key))
             }
@@ -60,6 +60,7 @@ internal class FailureNotifier(
     fun notifyBatch(
         error: Exception,
         kind: FailureKind,
+        operation: FailureOperation,
         actions: Map<String, EncryptedAction>?,
         cleared: Boolean,
     ) {
@@ -71,7 +72,7 @@ internal class FailureNotifier(
             return
         }
         val trace = buildString {
-            appendHeader(kind.description)
+            appendHeader(operation, kind.description)
             if (actions != null) {
                 append("\n  batch: ")
                 if (cleared) {
@@ -95,18 +96,44 @@ internal class FailureNotifier(
         enqueue(error, trace)
     }
 
-    private fun StringBuilder.appendHeader(tag: String) {
+    /**
+     * Reports a completed cleanup using one of the authentication failures that caused it.
+     * The count includes only records whose deletion and required flushes succeeded.
+     * Without a listener, the cleanup report is logged.
+     */
+    fun notifyRemoval(cause: AEADBadTagException, count: Int) {
+        if (count == 0) {
+            return
+        }
+        val noun = if (count == 1) {
+            "record"
+        } else {
+            "records"
+        }
+        val trace = buildString {
+            appendHeader(FailureOperation.CLEANUP, "removed $count unreadable $noun")
+        }
+        if (listener == null) {
+            Log.e("SafeBox", trace, cause)
+        } else {
+            enqueue(cause, trace)
+        }
+    }
+
+    private fun StringBuilder.appendHeader(operation: FailureOperation, tag: String) {
         val name = fileName.take(128)
             .replace("\r", "\\r")
             .replace("\n", "\\n")
-        append("SafeBox \"").append(name).append("\" ").append(tag)
+        append("SafeBox \"").append(name).append("\" ")
+            .append(operation.description).append(": ").append(tag)
     }
 
     private fun logFailure(error: Exception, kind: FailureKind, batch: Boolean = false) {
         val message = when {
-            kind == FailureKind.FLUSH -> "Failed to flush pending changes."
+            kind == FailureKind.PRIMARY_FLUSH -> "Failed to flush pending changes."
             batch -> "Failed to commit changes."
-            kind == FailureKind.DECRYPT && error is AEADBadTagException ->
+            (kind == FailureKind.DECRYPT_KEY || kind == FailureKind.DECRYPT_VALUE) &&
+                error is AEADBadTagException ->
                 "Decrypt failed due to AEADBadTagException."
             else -> return
         }

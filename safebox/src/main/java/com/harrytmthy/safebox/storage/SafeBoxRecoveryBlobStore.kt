@@ -98,6 +98,12 @@ internal class SafeBoxRecoveryBlobStore private constructor(
             entries
         }
 
+    internal suspend fun getEncryptedKeys(fileName: Bytes): Set<Bytes> =
+        writeMutex.withLock {
+            val keys = entryMetasByFileName[fileName]?.keys ?: return@withLock emptySet()
+            HashSet<Bytes>(keys.size, 1f).apply { addAll(keys) }
+        }
+
     internal suspend fun closeWhenIdle() {
         writeMutex.withLock {
             channel.close()

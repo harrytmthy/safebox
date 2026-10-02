@@ -35,7 +35,7 @@ class EntryIndexTest {
         val cipher = IdentityCipherProvider()
         val index = EntryIndex(cipher)
         repeat(100) {
-            index.load("key-$it".toByteArray().toBytes(), byteArrayOf(it.toByte()))
+            index.load("key-$it", "key-$it".toByteArray().toBytes(), byteArrayOf(it.toByte()))
         }
         val executor = Executors.newFixedThreadPool(8)
         try {
@@ -43,7 +43,10 @@ class EntryIndexTest {
                 Callable {
                     repeat(1000) { iteration ->
                         val entry = assertNotNull(index["key-${iteration % 100}"])
-                        assertContentEquals(byteArrayOf((iteration % 100).toByte()), entry.encryptedValue)
+                        assertContentEquals(
+                            expected = byteArrayOf((iteration % 100).toByte()),
+                            actual = entry.encryptedValue,
+                        )
                         assertNull(index["missing"])
                     }
                 }
@@ -58,7 +61,7 @@ class EntryIndexTest {
     fun remove_withAnOldSnapshot_shouldNotRemoveItsReplacement() {
         val index = EntryIndex(IdentityCipherProvider())
         val encryptedKey = "key".toByteArray().toBytes()
-        index.load(encryptedKey, byteArrayOf(1))
+        index.load(index.decodeKey(encryptedKey), encryptedKey, byteArrayOf(1))
         val old = assertNotNull(index["key"])
         index.put(index.lookup("key"), encryptedKey, byteArrayOf(2))
 
