@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -49,14 +50,16 @@ import javax.crypto.AEADBadTagException
 internal class SafeBoxEngine private constructor(
     private val blobStore: SafeBoxBlobStore,
     private val recoveryBlobStore: SafeBoxRecoveryBlobStore,
-    private val keyCipherProvider: CipherProvider,
+    keyCipherProvider: CipherProvider,
     private val valueCipherProvider: CipherProvider,
     private val ioDispatcher: CoroutineDispatcher,
     private val notifyNullOnClear: Boolean,
     private val failureNotifier: FailureNotifier,
 ) {
 
-    private val entries: MutableMap<Bytes, ByteArray> = ConcurrentHashMap()
+    private val entries = EntryIndex(keyCipherProvider)
+
+    private val unreadableKeys = Collections.newSetFromMap(ConcurrentHashMap<Bytes, Boolean>())
 
     // Null means the primary mutation succeeded and only journal retirement remains.
     private val recoveryEntries = HashMap<Bytes, ByteArray?>()
@@ -75,6 +78,8 @@ internal class SafeBoxEngine private constructor(
 
     private val initialReadCompleted = CompletableDeferred<Unit>()
 
+    private var retryInitialStorageRead = false
+
     private val writeBarrier = AtomicReference(CompletableDeferred<Unit>().apply { complete(Unit) })
 
     private val writeMutex = Mutex()
@@ -89,13 +94,23 @@ internal class SafeBoxEngine private constructor(
 
     init {
         launchWithStartingState {
-            entries += blobStore.loadPersistedEntries()
-            recoveryBlobStore.loadPersistedEntries(fileNameBytes)
-                .takeIf { it.isNotEmpty() }
-                ?.let {
-                    entries += it
-                    recoveryEntries += it
+            val loadedEntries = try {
+                loadStartingEntries()
+            } catch (e: Exception) {
+                retryInitialStorageRead = true
+                throw e
+            }
+            for ((encryptedKey, encryptedValue) in loadedEntries) {
+                try {
+                    entries.load(encryptedKey, encryptedValue)
+                } catch (e: AEADBadTagException) {
+                    // TODO: Report initialization key failures in the diagnostics follow-up.
+                    unreadableKeys.add(encryptedKey)
+                } catch (e: Exception) {
+                    // TODO: Classify initialization key failures in the diagnostics follow-up.
+                    throw e
                 }
+            }
         }
     }
 
@@ -109,17 +124,15 @@ internal class SafeBoxEngine private constructor(
 
     fun contains(key: String): Boolean {
         awaitInitialReadBlocking()
-        return entries.containsKey(key.toEncryptedKey())
+        return entries[key] != null
     }
 
     fun getEntries(): Map<String, Any?> {
         awaitInitialReadBlocking()
         val decryptedEntries = HashMap<String, Any?>(entries.size, 1f)
-        for (entry in entries) {
-            val key = keyCipherProvider.tryDecrypt(entry.key.value)
-                ?.toString(Charsets.UTF_8)
-                ?: continue
-            val value = valueCipherProvider.tryDecrypt(entry.value) ?: continue
+        for (entry in entries.values()) {
+            val key = decodeKey(entry) ?: continue
+            val value = valueCipherProvider.tryDecrypt(entry.encryptedValue) ?: continue
             decryptedEntries[key] = byteDecoder.decodeAny(value)
         }
         return decryptedEntries
@@ -127,8 +140,8 @@ internal class SafeBoxEngine private constructor(
 
     inline fun <reified T> getValue(key: String, defValue: T): T {
         awaitInitialReadBlocking()
-        return entries[key.toEncryptedKey()]
-            ?.let { valueCipherProvider.tryDecrypt(it) }
+        return entries[key]
+            ?.let { valueCipherProvider.tryDecrypt(it.encryptedValue) }
             ?.let { byteDecoder.decodeAny(it) as T }
             ?: defValue
     }
@@ -137,6 +150,7 @@ internal class SafeBoxEngine private constructor(
         if (actions.isEmpty() && !cleared) {
             return true
         }
+        awaitInitialReadBlocking()
         if (writeDebounceJob?.isActive == true) {
             writeDebounceJob?.cancel()
             writeDebounceJob = null
@@ -154,20 +168,14 @@ internal class SafeBoxEngine private constructor(
         if (actions.isEmpty() && !cleared) {
             return
         }
+        awaitInitialReadBlocking()
         if (writeDebounceJob?.isActive == true) {
             writeDebounceJob?.cancel()
             writeDebounceJob = null
         }
         val snapshot = LinkedHashMap(actions)
         actions.clear() // Prevents stale mutations on reused editor instance
-        val encryptedActions = updateEntries(snapshot, cleared)
-        synchronized(pendingUpdateLock) {
-            if (cleared) {
-                pendingActions.clear()
-                pendingClear = true
-            }
-            pendingActions += encryptedActions
-        }
+        updateEntries(snapshot, cleared, enqueue = true)
         writeDebounceJob = safeBoxScope.launch(ioDispatcher) {
             delay(WRITE_DEBOUNCE_TIMEOUT_MS)
             applyPendingActions()
@@ -192,11 +200,18 @@ internal class SafeBoxEngine private constructor(
     private fun updateEntries(
         actions: LinkedHashMap<String, Action>,
         cleared: Boolean,
+        enqueue: Boolean = false,
     ): LinkedHashMap<String, EncryptedAction> {
         val encryptedActions = LinkedHashMap<String, EncryptedAction>(actions.size)
         val modifiedKeys = synchronized(updateLock) {
             if (cleared) {
                 entries.clear()
+                if (enqueue) {
+                    synchronized(pendingUpdateLock) {
+                        pendingActions.clear()
+                        pendingClear = true
+                    }
+                }
                 if (notifyNullOnClear) {
                     callback?.onEntryChanged(null)
                 }
@@ -204,10 +219,19 @@ internal class SafeBoxEngine private constructor(
             val modifiedKeys = callback?.let { ArrayList<String>(actions.size) }
             for (entry in actions) {
                 val (key, action) = entry
-                val encryptedKey = key.toEncryptedKey(action = entry)
+                val lookup = entries.lookup(key)
+                val pendingRecordId = synchronized(pendingUpdateLock) {
+                    pendingActions[key]?.encryptedKey
+                }
+                val encryptedKey = try {
+                    entries.resolveEncryptedKey(key, lookup, pendingRecordId)
+                } catch (e: Exception) {
+                    failureNotifier.notify(e, FailureKind.ENCRYPT_KEY, entry)
+                    throw e
+                }
                 when (action) {
                     is Put -> {
-                        val oldEncryptedValue = entries[encryptedKey]
+                        val oldEncryptedValue = lookup.entry?.encryptedValue
                         val oldValue = oldEncryptedValue?.let {
                             valueCipherProvider.tryDecrypt(it, action = entry)
                         }
@@ -216,7 +240,7 @@ internal class SafeBoxEngine private constructor(
                             oldEncryptedValue!!
                         } else {
                             encryptValue(newValue, entry).also {
-                                entries[encryptedKey] = it
+                                entries.put(lookup, encryptedKey, it)
                                 modifiedKeys?.add(key)
                             }
                         }
@@ -228,11 +252,16 @@ internal class SafeBoxEngine private constructor(
                         )
                     }
                     is Remove -> {
-                        if (entries.remove(encryptedKey) != null) {
+                        if (entries.remove(lookup) != null) {
                             modifiedKeys?.add(key)
                         }
                         encryptedActions[key] = EncryptedAction(key, action, encryptedKey, null)
                     }
+                }
+            }
+            if (enqueue) {
+                synchronized(pendingUpdateLock) {
+                    pendingActions += encryptedActions
                 }
             }
             modifiedKeys
@@ -351,17 +380,36 @@ internal class SafeBoxEngine private constructor(
         }
     }
 
+    private suspend fun loadStartingEntries(): Map<Bytes, ByteArray> {
+        val loadedEntries = LinkedHashMap(blobStore.loadPersistedEntries())
+        val recoveredEntries = recoveryBlobStore.loadPersistedEntries(fileNameBytes)
+        loadedEntries += recoveredEntries
+        recoveryEntries += recoveredEntries
+        return loadedEntries
+    }
+
+    private suspend fun retryStartingStorageRead() {
+        if (!retryInitialStorageRead) {
+            return
+        }
+        // Rebuild storage locations without replacing mutations already applied in memory.
+        loadStartingEntries()
+        retryInitialStorageRead = false
+    }
+
     private inline fun launchWithStartingState(crossinline block: suspend () -> Unit) {
         safeBoxScope.launch(ioDispatcher) {
             try {
                 block()
             } catch (e: Exception) {
                 failureNotifier.notify(e, FailureKind.LOAD)
-                throw e
             } finally {
                 initialReadCompleted.complete(Unit)
             }
         }.invokeOnCompletion {
+            if (unreadableKeys.isNotEmpty()) {
+                scanAndRemoveDeadEntries()
+            }
             if (recoveryEntries.isNotEmpty()) {
                 recoveryScheduled.set(true)
                 scheduleRecoveryEntriesWrite(DEFAULT_BACKOFF_MS)
@@ -381,6 +429,7 @@ internal class SafeBoxEngine private constructor(
                 initialReadCompleted.await()
                 previousWriteBarrier.await()
                 writeMutex.withLock {
+                    retryStartingStorageRead()
                     block()
                 }
                 true
@@ -417,6 +466,7 @@ internal class SafeBoxEngine private constructor(
                 initialReadCompleted.await()
                 previousWriteBarrier.await()
                 writeMutex.withLock {
+                    retryStartingStorageRead()
                     block()
                 }
             } catch (e: Exception) {
@@ -468,15 +518,34 @@ internal class SafeBoxEngine private constructor(
         }
         launchWriteAsync(kind = FailureKind.REMOVE_UNREADABLE) {
             try {
-                val deadKeys = ArrayList<Bytes>()
-                for ((encryptedKey, encryptedValue) in entries) {
-                    if (valueCipherProvider.tryDecrypt(encryptedValue, notify = false) == null) {
-                        entries.remove(encryptedKey)
-                        deadKeys.add(encryptedKey)
+                val deadKeys = LinkedHashSet<Bytes>()
+                synchronized(updateLock) {
+                    val currentRecordIds = entries.values().mapTo(HashSet()) { it.encryptedKey }
+                    for (encryptedKey in unreadableKeys.toList()) {
+                        if (encryptedKey !in currentRecordIds) {
+                            deadKeys.add(encryptedKey)
+                        }
+                        unreadableKeys.remove(encryptedKey)
                     }
                 }
-                if (deadKeys.isNotEmpty()) {
-                    blobStore.delete(*deadKeys.toTypedArray())
+                for (entry in entries.values()) {
+                    if (valueCipherProvider.tryDecrypt(entry.encryptedValue, notify = false) == null) {
+                        synchronized(updateLock) {
+                            if (entries.remove(entry)) {
+                                deadKeys.add(entry.encryptedKey)
+                            }
+                        }
+                    }
+                }
+                // TODO: Report cleanup outcomes in the diagnostics follow-up.
+                for (encryptedKey in deadKeys) {
+                    val supersedes = hasRecoveryEntry(encryptedKey)
+                    if (blobStore.contains(encryptedKey)) {
+                        blobStore.delete(encryptedKey, supersedes)
+                    }
+                    if (supersedes) {
+                        discardRecoveryEntry(encryptedKey)
+                    }
                 }
             } finally {
                 scanScheduled.set(false)
@@ -500,11 +569,20 @@ internal class SafeBoxEngine private constructor(
             throw e
         }
 
-    private fun String.toEncryptedKey(action: Map.Entry<String, Action>? = null): Bytes =
+    private fun decodeKey(entry: EntryIndex.Entry): String? =
         try {
-            keyCipherProvider.encrypt(this.toByteArray()).toBytes()
+            entries.decodeKey(entry)
+        } catch (e: AEADBadTagException) {
+            failureNotifier.notify(e, FailureKind.DECRYPT)
+            synchronized(updateLock) {
+                if (entries.remove(entry)) {
+                    unreadableKeys.add(entry.encryptedKey)
+                }
+            }
+            scanAndRemoveDeadEntries()
+            null
         } catch (e: Exception) {
-            failureNotifier.notify(e, FailureKind.ENCRYPT_KEY, action)
+            failureNotifier.notify(e, FailureKind.DECRYPT)
             throw e
         }
 
