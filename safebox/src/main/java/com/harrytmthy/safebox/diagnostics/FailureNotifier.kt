@@ -18,153 +18,43 @@ package com.harrytmthy.safebox.diagnostics
 
 import android.util.Log
 import com.harrytmthy.safebox.SafeBox
-import com.harrytmthy.safebox.SafeBox.Action
-import com.harrytmthy.safebox.engine.SafeBoxEngine.EncryptedAction
+import com.harrytmthy.safebox.SafeBox.FailureOperation
 import com.harrytmthy.safebox.extensions.safeBoxScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import javax.crypto.AEADBadTagException
 
 internal class FailureNotifier(
     private val fileName: String,
     private val listener: SafeBox.FailureListener?,
 ) {
 
-    private val pendingFailures = listener?.let { ArrayDeque<Pair<Exception, String>>() }
+    private val pendingFailures = listener?.let {
+        ArrayDeque<SafeBox.Failure>(MAX_PENDING_FAILURES)
+    }
 
     private var deliveringFailures = false
 
-    fun notify(
-        error: Exception,
-        kind: FailureKind,
-        operation: FailureOperation,
-        action: Map.Entry<String, Action>? = null,
-    ) {
-        if (listener == null) {
-            logFailure(error, kind)
-            return
-        }
+    fun notify(error: Throwable, operation: FailureOperation) {
         if (error is CancellationException) {
             return
         }
-        val trace = buildString {
-            appendHeader(operation, kind.description)
-            if (action != null) {
-                append("\n  ").append(action.value.describe(action.key))
-            }
-        }
-        enqueue(error, trace)
-    }
-
-    fun notifyBatch(
-        error: Exception,
-        kind: FailureKind,
-        operation: FailureOperation,
-        actions: Map<String, EncryptedAction>?,
-        cleared: Boolean,
-    ) {
+        val failure = SafeBox.Failure(fileName, operation, error)
         if (listener == null) {
-            logFailure(error, kind, batch = true)
+            Log.e(TAG, failure.toString(), failure.error)
             return
         }
-        if (error is CancellationException) {
-            return
-        }
-        val trace = buildString {
-            appendHeader(operation, kind.description)
-            if (actions != null) {
-                append("\n  batch: ")
-                if (cleared) {
-                    append("clear")
-                }
-                for ((index, entry) in actions.values.withIndex()) {
-                    if (index == MAX_TRACED_ACTIONS) {
-                        break
-                    }
-                    if (cleared || index > 0) {
-                        append(", ")
-                    }
-                    append(entry.value.describe(entry.key))
-                }
-                if (actions.size > MAX_TRACED_ACTIONS) {
-                    append(", ").append(actions.size - MAX_TRACED_ACTIONS)
-                        .append(" actions omitted")
-                }
-            }
-        }
-        enqueue(error, trace)
+        enqueue(failure)
     }
 
-    /**
-     * Reports a completed cleanup using one of the authentication failures that caused it.
-     * The count includes only records whose deletion and required flushes succeeded.
-     * Without a listener, the cleanup report is logged.
-     */
-    fun notifyRemoval(cause: AEADBadTagException, count: Int) {
-        if (count == 0) {
-            return
-        }
-        val noun = if (count == 1) {
-            "record"
-        } else {
-            "records"
-        }
-        val trace = buildString {
-            appendHeader(FailureOperation.CLEANUP, "removed $count unreadable $noun")
-        }
-        if (listener == null) {
-            Log.e("SafeBox", trace, cause)
-        } else {
-            enqueue(cause, trace)
-        }
-    }
-
-    private fun StringBuilder.appendHeader(operation: FailureOperation, tag: String) {
-        val name = fileName.take(128)
-            .replace("\r", "\\r")
-            .replace("\n", "\\n")
-        append("SafeBox \"").append(name).append("\" ")
-            .append(operation.description).append(": ").append(tag)
-    }
-
-    private fun logFailure(error: Exception, kind: FailureKind, batch: Boolean = false) {
-        val message = when {
-            kind == FailureKind.PRIMARY_FLUSH -> "Failed to flush pending changes."
-            batch -> "Failed to commit changes."
-            (kind == FailureKind.DECRYPT_KEY || kind == FailureKind.DECRYPT_VALUE) &&
-                error is AEADBadTagException ->
-                "Decrypt failed due to AEADBadTagException."
-            else -> return
-        }
-        Log.e("SafeBox", message, error)
-    }
-
-    private fun Action.describe(key: String): String {
-        val boundedKey = key.take(MAX_TRACED_KEY_LENGTH)
-            .replace("\r", "\\r")
-            .replace("\n", "\\n")
-        val suffix = if (key.length > MAX_TRACED_KEY_LENGTH) {
-            "..."
-        } else {
-            ""
-        }
-        val operation = if (this is Action.Put) {
-            "put"
-        } else {
-            "remove"
-        }
-        return "$operation $boundedKey$suffix"
-    }
-
-    private fun enqueue(error: Exception, trace: String) {
+    private fun enqueue(failure: SafeBox.Failure) {
         val pendingFailures = pendingFailures ?: return
         val listener = listener ?: return
         val queueFull = synchronized(pendingFailures) {
             if (pendingFailures.size == MAX_PENDING_FAILURES) {
                 true
             } else {
-                pendingFailures.addLast(error to trace)
+                pendingFailures.addLast(failure)
                 if (deliveringFailures) {
                     return
                 }
@@ -173,18 +63,14 @@ internal class FailureNotifier(
             }
         }
         if (queueFull) {
-            Log.e(
-                "SafeBox",
-                "Failure listener queue full. Logging this failure instead:\n$trace",
-                error,
-            )
+            Log.e(TAG, "$failure: failure listener queue is full.", failure.error)
             return
         }
 
-        // The storage dispatcher may run inline or be blocked by a listener's commit().
+        // Delivery must not share a storage dispatcher blocked by a listener's commit().
         safeBoxScope.launch(Dispatchers.IO) {
             while (true) {
-                val (nextError, nextTrace) = synchronized(pendingFailures) {
+                val next = synchronized(pendingFailures) {
                     val next = pendingFailures.removeFirstOrNull()
                     if (next == null) {
                         deliveringFailures = false
@@ -193,22 +79,21 @@ internal class FailureNotifier(
                     next
                 }
                 try {
-                    listener.onFailure(nextError, nextTrace)
-                } catch (e: Exception) {
-                    val fallback = buildString {
-                        append("Failure listener threw while handling:\n").append(nextTrace)
-                        append("\nOriginal failure:\n").append(Log.getStackTraceString(nextError))
-                        append("\nListener failure:")
-                    }
-                    Log.e("SafeBox", fallback, e)
+                    listener.onFailure(next)
+                } catch (listenerError: Exception) {
+                    Log.e(
+                        TAG,
+                        "Failure listener threw while handling $next",
+                        listenerError,
+                    )
+                    Log.e(TAG, "Original $next", next.error)
                 }
             }
         }
     }
 
     private companion object {
-        const val MAX_TRACED_KEY_LENGTH = 128
-        const val MAX_TRACED_ACTIONS = 32
+        const val TAG = "SafeBox"
         const val MAX_PENDING_FAILURES = 16
     }
 }
