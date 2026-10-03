@@ -47,6 +47,8 @@ internal class EntryIndex(private val keyCipherProvider: CipherProvider) {
 
     operator fun get(key: String): Entry? = entries[token(key)]
 
+    operator fun get(lookup: Lookup): Entry? = entries[lookup.token]
+
     fun lookup(key: String): Lookup {
         val token = token(key)
         return Lookup(token, entries[token])
@@ -57,8 +59,8 @@ internal class EntryIndex(private val keyCipherProvider: CipherProvider) {
         entries[token] = Entry(token, encryptedKey, encryptedValue)
     }
 
-    fun resolveEncryptedKey(key: String): Bytes =
-        get(key)?.encryptedKey
+    fun resolveEncryptedKey(key: String, lookup: Lookup): Bytes =
+        lookup.entry?.encryptedKey
             ?: keyCipherProvider.encrypt(key.toByteArray(Charsets.UTF_8)).toBytes()
 
     fun put(lookup: Lookup, encryptedKey: Bytes, encryptedValue: ByteArray) {

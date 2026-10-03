@@ -797,7 +797,7 @@ class SafeBoxTest {
     }
 
     @Test
-    fun remove_whenKeyEncryptionFailsDuringCommit_shouldNotifyOnce() {
+    fun remove_whenKeyEncryptionFailsDuringCommit_shouldReuseExistingRecordIdentity() {
         val failures = FailureRecorder()
         val keyCipher = FaultyCipherProvider()
         safeBox = createSafeBox(
@@ -808,16 +808,17 @@ class SafeBoxTest {
         val cause = IOException("Injected key encryption failure")
         keyCipher.encryptFailure = cause
 
-        assertFalse(safeBox.edit().remove("counter").commit())
-
-        val (error, operation) = failures.awaitFailure()
-        assertSame(cause, error)
-        assertEquals(FailureOperation.WRITE, operation)
+        assertTrue(safeBox.edit().remove("counter").commit())
+        assertEquals(1, keyCipher.encryptCalls)
         failures.assertNoFailure()
+        engines.getValue(fileName).closeBlobStoreChannel()
+        SafeBox.instances.remove(fileName)
+        safeBox = createSafeBox(cipherProviders = keyCipher to FaultyCipherProvider())
+        assertFalse(safeBox.contains("counter"))
     }
 
     @Test
-    fun remove_whenKeyEncryptionFailsDuringApply_shouldNotifyOnce() = runTest {
+    fun remove_whenKeyEncryptionFailsDuringApply_shouldReuseExistingRecordIdentity() = runTest {
         val failures = FailureRecorder()
         val keyCipher = FaultyCipherProvider()
         safeBox = createSafeBox(
@@ -831,6 +832,47 @@ class SafeBoxTest {
         keyCipher.encryptFailure = cause
 
         safeBox.edit().remove("counter").apply()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, keyCipher.encryptCalls)
+        failures.assertNoFailure()
+        engines.getValue(fileName).closeBlobStoreChannel()
+        SafeBox.instances.remove(fileName)
+        safeBox = createSafeBox(cipherProviders = keyCipher to FaultyCipherProvider())
+        assertFalse(safeBox.contains("counter"))
+    }
+
+    @Test
+    fun removeAbsentKey_whenKeyEncryptionFailsDuringCommit_shouldNotifyOnce() {
+        val failures = FailureRecorder()
+        val cause = IOException("Injected key encryption failure")
+        val keyCipher = FaultyCipherProvider().apply { encryptFailure = cause }
+        safeBox = createSafeBox(
+            cipherProviders = keyCipher to FaultyCipherProvider(),
+            failureListener = failures,
+        )
+
+        assertFalse(safeBox.edit().remove("missing").commit())
+
+        val (error, operation) = failures.awaitFailure()
+        assertSame(cause, error)
+        assertEquals(FailureOperation.WRITE, operation)
+        failures.assertNoFailure()
+    }
+
+    @Test
+    fun removeAbsentKey_whenKeyEncryptionFailsDuringApply_shouldNotifyOnce() = runTest {
+        val failures = FailureRecorder()
+        val cause = IOException("Injected key encryption failure")
+        val keyCipher = FaultyCipherProvider().apply { encryptFailure = cause }
+        safeBox = createSafeBox(
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+            cipherProviders = keyCipher to FaultyCipherProvider(),
+            failureListener = failures,
+        )
+        runCurrent()
+
+        safeBox.edit().remove("missing").apply()
         testScheduler.advanceUntilIdle()
 
         val (error, operation) = failures.awaitFailure()
