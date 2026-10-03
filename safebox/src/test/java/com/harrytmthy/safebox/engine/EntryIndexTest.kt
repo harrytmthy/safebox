@@ -23,6 +23,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -71,6 +72,34 @@ class EntryIndexTest {
         assertContentEquals(byteArrayOf(2), current.encryptedValue)
         assertTrue(index.remove(current))
         assertNull(index["key"])
+    }
+
+    @Test
+    fun lookup_afterReplacement_shouldReadCurrentStateAndRetainItsOriginalRecordIdentity() {
+        val index = EntryIndex(IdentityCipherProvider())
+        val oldKey = "old-key".toByteArray().toBytes()
+        val currentKey = "current-key".toByteArray().toBytes()
+        index.load("key", oldKey, byteArrayOf(1))
+        val lookup = index.lookup("key")
+
+        index.put(lookup, currentKey, byteArrayOf(2))
+
+        assertContentEquals(byteArrayOf(2), assertNotNull(index[lookup]).encryptedValue)
+        assertContentEquals(byteArrayOf(1), assertNotNull(lookup.entry).encryptedValue)
+        assertEquals(oldKey, index.resolveEncryptedKey("key", lookup))
+    }
+
+    @Test
+    fun lookup_afterRemoval_shouldReuseStoredRecordIdentityWithoutEncryptingTheKey() {
+        val index = EntryIndex(IdentityCipherProvider())
+        val encryptedKey = "stored-key".toByteArray().toBytes()
+        index.load("key", encryptedKey, byteArrayOf(1))
+        val lookup = index.lookup("key")
+
+        index.remove(lookup)
+
+        assertNull(index[lookup])
+        assertEquals(encryptedKey, index.resolveEncryptedKey("key", lookup))
     }
 
     private class IdentityCipherProvider : CipherProvider {

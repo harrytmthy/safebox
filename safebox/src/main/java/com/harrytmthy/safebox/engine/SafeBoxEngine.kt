@@ -66,7 +66,7 @@ internal class SafeBoxEngine private constructor(
 
     private val fileNameBytes = blobStore.getFileName().toBytes()
 
-    private val pendingActions = LinkedHashMap<String, Action>()
+    private val pendingLookups = LinkedHashMap<String, EntryIndex.Lookup>()
 
     private var pendingClear = false
 
@@ -149,9 +149,9 @@ internal class SafeBoxEngine private constructor(
         }
         val snapshot = LinkedHashMap(actions)
         actions.clear() // Prevents stale mutations on reused editor instance
-        updateEntries(snapshot, cleared)
+        val lookups = updateEntries(snapshot, cleared)
         return launchWriteBlocking {
-            applyChanges(snapshot, cleared)
+            applyChanges(lookups, cleared)
         }
     }
 
@@ -174,14 +174,14 @@ internal class SafeBoxEngine private constructor(
     }
 
     private fun applyPendingActions() {
-        val (pendingActionsSnapshot, shouldClear) = synchronized(pendingUpdateLock) {
-            val snapshot = LinkedHashMap(pendingActions)
-            pendingActions.clear()
+        val (pendingLookupsSnapshot, shouldClear) = synchronized(pendingUpdateLock) {
+            val snapshot = LinkedHashMap(pendingLookups)
+            pendingLookups.clear()
             val cleared = pendingClear.also { pendingClear = false }
             snapshot to cleared
         }
         launchWriteAsync {
-            applyChanges(pendingActionsSnapshot, shouldClear)
+            applyChanges(pendingLookupsSnapshot, shouldClear)
         }
     }
 
@@ -189,13 +189,14 @@ internal class SafeBoxEngine private constructor(
         actions: LinkedHashMap<String, Action>,
         cleared: Boolean,
         enqueue: Boolean = false,
-    ) {
+    ): LinkedHashMap<String, EntryIndex.Lookup> {
+        val lookups = LinkedHashMap<String, EntryIndex.Lookup>(actions.size, 1f)
         val modifiedKeys = synchronized(updateLock) {
             if (cleared) {
                 entries.clear()
                 if (enqueue) {
                     synchronized(pendingUpdateLock) {
-                        pendingActions.clear()
+                        pendingLookups.clear()
                         pendingClear = true
                     }
                 }
@@ -206,6 +207,7 @@ internal class SafeBoxEngine private constructor(
             val modifiedKeys = callback?.let { ArrayList<String>(actions.size) }
             for ((key, action) in actions) {
                 val lookup = entries.lookup(key)
+                lookups[key] = lookup
                 when (action) {
                     is Put -> {
                         val oldValue = lookup.entry?.let {
@@ -213,7 +215,7 @@ internal class SafeBoxEngine private constructor(
                         }
                         val newValue = action.encodedValue.value
                         if (!newValue.contentEquals(oldValue)) {
-                            val encryptedKey = toEncryptedKey(key)
+                            val encryptedKey = toEncryptedKey(key, lookup)
                             entries.put(lookup, encryptedKey, encryptValue(newValue))
                             modifiedKeys?.add(key)
                         }
@@ -227,18 +229,21 @@ internal class SafeBoxEngine private constructor(
             }
             if (enqueue) {
                 synchronized(pendingUpdateLock) {
-                    pendingActions += actions
+                    pendingLookups += lookups
                 }
             }
             modifiedKeys
         }
-        for (index in (modifiedKeys?.size ?: return) - 1 downTo 0) {
-            callback?.onEntryChanged(modifiedKeys[index])
+        modifiedKeys?.let {
+            for (index in it.size - 1 downTo 0) {
+                callback?.onEntryChanged(it[index])
+            }
         }
+        return lookups
     }
 
     private suspend fun applyChanges(
-        actions: LinkedHashMap<String, Action>,
+        lookups: LinkedHashMap<String, EntryIndex.Lookup>,
         cleared: Boolean,
     ) {
         if (cleared) {
@@ -253,12 +258,12 @@ internal class SafeBoxEngine private constructor(
             }
             return
         }
-        for (key in actions.keys) {
-            val entry = entries[key]
+        for ((key, lookup) in lookups) {
+            val entry = entries[lookup]
             if (entry != null) {
                 writeEntry(entry)
             } else {
-                val encryptedKey = entries.resolveEncryptedKey(key)
+                val encryptedKey = entries.resolveEncryptedKey(key, lookup)
                 val supersedes = hasRecoveryEntry(encryptedKey)
                 if (blobStore.contains(encryptedKey)) {
                     blobStore.delete(encryptedKey, supersedes)
@@ -528,9 +533,9 @@ internal class SafeBoxEngine private constructor(
             throw e
         }
 
-    private fun toEncryptedKey(key: String): Bytes =
+    private fun toEncryptedKey(key: String, lookup: EntryIndex.Lookup): Bytes =
         try {
-            entries.resolveEncryptedKey(key)
+            entries.resolveEncryptedKey(key, lookup)
         } catch (e: Exception) {
             failureNotifier.notify(e, WRITE)
             throw e
