@@ -164,23 +164,49 @@ public class SafeBox private constructor(private val engine: SafeBoxEngine) : Sh
     }
 
     /**
-     * Receives failures that occur inside SafeBox. Callbacks run sequentially on
-     * [Dispatchers.IO], in the order accepted per instance. Return promptly.
-     * If the delivery queue fills, new failures are logged instead of delivered.
-     *
-     * Successful delivery does not also log the failure. If the listener throws, one fallback log
-     * contains the trace and both exceptions. Delivery may begin before creation returns.
+     * Receives failures sequentially on [Dispatchers.IO], in the order accepted per instance.
+     * Keep callbacks short. Failed delivery or a full queue falls back to logcat.
      * Failures preventing instance construction still propagate directly to the caller.
-     *
-     * Cleanup notifications also report confirmed removal of unreadable records, using one of
-     * the original authentication failures as the cause. Detection alone does not confirm removal.
-     *
-     * The trace includes key names but excludes stored values. The original [Throwable] is passed
-     * unchanged, so applications should review both fields before forwarding them externally.
-     * Fallback logs include key names and exception details without application-side redaction.
      */
     public fun interface FailureListener {
-        public fun onFailure(error: Throwable, trace: String)
+        public fun onFailure(failure: Failure)
+    }
+
+    /**
+     * An original failure associated with a SafeBox file and operation.
+     */
+    public class Failure internal constructor(
+        public val fileName: String,
+        public val operation: FailureOperation,
+        public val error: Throwable,
+    ) {
+
+        override fun toString(): String {
+            val name = fileName.take(MAX_FILE_NAME_LENGTH)
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+            val description = when (operation) {
+                FailureOperation.INITIAL_LOAD -> "initial load"
+                FailureOperation.READ -> "read"
+                FailureOperation.WRITE -> "write"
+                FailureOperation.RECOVERY_REPLAY -> "recovery replay"
+            }
+            return "SafeBox \"$name\" failed during $description"
+        }
+
+        private companion object {
+            private const val MAX_FILE_NAME_LENGTH = 128
+        }
+    }
+
+    /**
+     * The SafeBox operation during which a failure occurred.
+     */
+    public enum class FailureOperation {
+        INITIAL_LOAD,
+        READ,
+        WRITE,
+        RECOVERY_REPLAY,
     }
 
     public companion object {

@@ -36,8 +36,25 @@ public final class com/harrytmthy/safebox/SafeBox$Companion {
 	public final fun getOrNull (Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox;
 }
 
+public final class com/harrytmthy/safebox/SafeBox$Failure {
+	public final fun getError ()Ljava/lang/Throwable;
+	public final fun getFileName ()Ljava/lang/String;
+	public final fun getOperation ()Lcom/harrytmthy/safebox/SafeBox$FailureOperation;
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class com/harrytmthy/safebox/SafeBox$FailureListener {
-	public abstract fun onFailure (Ljava/lang/Throwable;Ljava/lang/String;)V
+	public abstract fun onFailure (Lcom/harrytmthy/safebox/SafeBox$Failure;)V
+}
+
+public final class com/harrytmthy/safebox/SafeBox$FailureOperation : java/lang/Enum {
+	public static final field INITIAL_LOAD Lcom/harrytmthy/safebox/SafeBox$FailureOperation;
+	public static final field READ Lcom/harrytmthy/safebox/SafeBox$FailureOperation;
+	public static final field RECOVERY_REPLAY Lcom/harrytmthy/safebox/SafeBox$FailureOperation;
+	public static final field WRITE Lcom/harrytmthy/safebox/SafeBox$FailureOperation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/harrytmthy/safebox/SafeBox$FailureOperation;
+	public static fun values ()[Lcom/harrytmthy/safebox/SafeBox$FailureOperation;
 }
 
 public final class com/harrytmthy/safebox/migration/SafeBoxMigrationHelper {

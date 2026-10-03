@@ -57,9 +57,8 @@ internal class EntryIndex(private val keyCipherProvider: CipherProvider) {
         entries[token] = Entry(token, encryptedKey, encryptedValue)
     }
 
-    fun resolveEncryptedKey(key: String, lookup: Lookup, pendingRecordId: Bytes?): Bytes =
-        lookup.entry?.encryptedKey
-            ?: pendingRecordId
+    fun resolveEncryptedKey(key: String): Bytes =
+        get(key)?.encryptedKey
             ?: keyCipherProvider.encrypt(key.toByteArray(Charsets.UTF_8)).toBytes()
 
     fun put(lookup: Lookup, encryptedKey: Bytes, encryptedValue: ByteArray) {
