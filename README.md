@@ -7,9 +7,10 @@
 A secure, blazing-fast alternative to `EncryptedSharedPreferences`, designed for Android projects which demand both **speed** and **security**.
 
 ## 🚨 EncryptedSharedPreferences is Deprecated
-As of **Jetpack Security 1.1.0-alpha07 (April 9, 2025)**, `EncryptedSharedPreferences` has been deprecated with no official replacement. Without continued support from Google, it may fall behind in cryptography standards, leaving sensitive data exposed.
 
-SafeBox can help you [migrate](docs/MIGRATION.md) easily using the same `SharedPreferences` API. Since v1.2.0, SafeBox delivers **~184× faster init**, **~50× faster reads**, and **~9× faster writes** than EncryptedSharedPreferences.
+As of **Jetpack Security 1.1.0-alpha07 (April 9, 2025)**, `EncryptedSharedPreferences` is deprecated in favor of platform APIs and direct Android Keystore use. [Google has confirmed](https://developer.android.com/privacy-and-security/cryptography) there will be no subsequent releases of the `security-crypto` library.
+
+SafeBox keeps the `SharedPreferences` API without requiring apps to replace it with a different storage model.
 
 ## Why SafeBox?
 
@@ -55,10 +56,10 @@ Compared to EncryptedSharedPreferences:
 
 ```kotlin
 dependencies {
-    implementation("io.github.harrytmthy:safebox:1.4.0-rc01")
+    implementation("io.github.harrytmthy:safebox:1.4.0")
 
     // Optional: standalone crypto helper
-    implementation("io.github.harrytmthy:safebox-crypto:1.4.0-rc01")
+    implementation("io.github.harrytmthy:safebox-crypto:1.4.0")
 }
 ```
 
@@ -142,138 +143,19 @@ If you only need the helper, use the standalone `:safebox-crypto` module.
 
 ## Performance Benchmarks
 
-Average times measured over **100 samples** on an emulator:
+SafeBox performance is measured using Jetpack Microbenchmark on a physical Android device with a non-debuggable release build. Reported figures are median durations over 50 measured samples.
 
-<details open>
+Compared with SafeBox 1.3.0, SafeBox 1.4.0 improves performance across every measured workload:
 
-<summary>📊 v1.3.0 Benchmark</summary>
+| Workload          | Speedup vs 1.3.0 |
+|-------------------|-----------------:|
+| Initialization    |            1.67× |
+| Reads             |       1.80–2.59× |
+| Commit 1 entry    |            1.30× |
+| Bulk commits      |      3.73–18.73× |
+| Separate commits  |       1.06–1.31× |
 
-![Get Performance](docs/charts/v1_3_get_performance_chart.png)
-
-![Put Performance](docs/charts/v1_3_put_performance_chart.png)
-
-![Put then Commit Performance](docs/charts/v1_3_put_and_commit_performance_chart.png)
-
-| Operation                   | SafeBox v1.3.0               | EncryptedSharedPreferences |
-|-----------------------------|------------------------------|----------------------------|
-| Initialization              | **0.19ms** (*201.1× faster*) | 38.7ms                     |
-| Get 1 entry                 | **0.01ms** (*76.9× faster*)  | 0.50ms                     |
-| Get 3 entries               | **0.02ms** (*68.5× faster*)  | 1.27ms                     |
-| Get 5 entries               | **0.03ms** (*76.8× faster*)  | 2.25ms                     |
-| Get 10 entries              | **0.06ms** (*66.4× faster*)  | 4.07ms                     |
-| Put 1 entry, then commit    | **0.17ms** (*7.8× faster*)   | 1.31ms                     |
-| Put 3 entries, then commit  | **0.46ms** (*4.7× faster*)   | 2.16ms                     |
-| Put 5 entries, then commit  | **0.73ms** (*4.5× faster*)   | 3.32ms                     |
-| Put 10 entries, then commit | **1.46ms** (*4.3× faster*)   | 6.28ms                     |
-
-Even on **multiple single commits**, SafeBox remains faster:
-
-| Operation                 | SafeBox v1.3.0              | EncryptedSharedPreferences |
-|---------------------------|-----------------------------|----------------------------|
-| Commit 3 single entries   | **0.52ms** (*9.5× faster*)  | 4.90ms                     |
-| Commit 5 single entries   | **0.85ms** (*8.2× faster*)  | 6.91ms                     |
-| Commit 10 single entries  | **1.71ms** (*6.6× faster*)  | 11.27ms                    |
-| Commit 100 single entries | **16.51ms** (*4.3× faster*) | 71.34ms                    |
-
-</details>
-
-<details>
-
-<summary>📊 v1.2.0 Benchmark</summary>
-
-![Get Performance](docs/charts/v1_2_get_performance_chart.png)
-
-![Put Performance](docs/charts/v1_2_put_performance_chart.png)
-
-![Put then Commit Performance](docs/charts/v1_2_put_and_commit_performance_chart.png)
-
-| Operation                   | SafeBox v1.2.0               | EncryptedSharedPreferences |
-|-----------------------------|------------------------------|----------------------------|
-| Initialization              | **0.21ms** (*184.3× faster*) | 38.7ms                     |
-| Get 1 entry                 | **0.01ms** (*50.0× faster*)  | 0.50ms                     |
-| Get 3 entries               | **0.04ms** (*31.8× faster*)  | 1.27ms                     |
-| Get 5 entries               | **0.07ms** (*32.1× faster*)  | 2.25ms                     |
-| Get 10 entries              | **0.15ms** (*27.1× faster*)  | 4.07ms                     |
-| Put 1 entry, then commit    | **0.22ms** (*5.95× faster*)  | 1.31ms                     |
-| Put 3 entries, then commit  | **0.52ms** (*4.15× faster*)  | 2.16ms                     |
-| Put 5 entries, then commit  | **0.98ms** (*3.39× faster*)  | 3.32ms                     |
-| Put 10 entries, then commit | **1.64ms** (*3.83× faster*)  | 6.28ms                     |
-
-Even on **multiple single commits**, SafeBox remains faster:
-
-| Operation                 | SafeBox v1.2.0               | EncryptedSharedPreferences |
-|---------------------------|------------------------------|----------------------------|
-| Commit 3 single entries   | **0.53ms** (*9.25× faster*)  | 4.90ms                     |
-| Commit 5 single entries   | **0.95ms** (*7.27× faster*)  | 6.91ms                     |
-| Commit 10 single entries  | **1.96ms** (*5.75× faster*)  | 11.27ms                    |
-| Commit 100 single entries | **17.41ms** (*4.10× faster*) | 71.34ms                    |
-
-</details>
-
-<details>
-
-<summary>📊 v1.1.0 Benchmark</summary>
-
-![Get Performance](docs/charts/v1_1_get_performance_chart.png)
-
-![Put Performance](docs/charts/v1_1_put_performance_chart.png)
-
-![Put then Commit Performance](docs/charts/v1_1_put_and_commit_performance_chart.png)
-
-| Operation                   | SafeBox v1.1.0 | EncryptedSharedPreferences |
-|-----------------------------|----------------|----------------------------|
-| Initialization              | **0.38ms**     | 38.7ms (*10,079% slower*)  |
-| Get 1 entry                 | **0.33ms**     | 0.50ms (*52% slower*)      |
-| Get 3 entries               | **0.94ms**     | 1.27ms (*35% slower*)      |
-| Get 5 entries               | **1.56ms**     | 2.25ms (*44% slower*)      |
-| Get 10 entries              | **3.06ms**     | 4.07ms (*33% slower*)      |
-| Put 1 entry, then commit    | **0.49ms**     | 1.31ms (*167% slower*)     |
-| Put 3 entries, then commit  | **1.34ms**     | 2.16ms (*61% slower*)      |
-| Put 5 entries, then commit  | **2.36ms**     | 3.32ms (*41% slower*)      |
-| Put 10 entries, then commit | **4.20ms**     | 6.28ms (*50% slower*)      |
-
-Even on **multiple single commits**, SafeBox remains faster:
-
-| Operation                    | SafeBox v1.1.0 | EncryptedSharedPreferences |
-|------------------------------|----------------|----------------------------|
-| Commit 3 single entries      | **1.50ms**     | 4.90ms (*227% slower*)     |
-| Commit 5 single entries      | **2.39ms**     | 6.91ms (*189% slower*)     |
-| Commit 10 single entries     | **5.07ms**     | 11.27ms (*122% slower*)    |
-| Commit 100 single entries    | **38.12ms**    | 71.34ms (*87% slower*)     |
-
-</details>
-
-<details>
-
-<summary>📊 v1.0.0 Benchmark</summary>
-
-![Get Performance](docs/charts/read_performance_chart.png)
-
-![Put Performance](docs/charts/write_performance_chart.png)
-
-![Put then Commit Performance](docs/charts/write_commit_performance_chart.png)
-
-| Operation                   | SafeBox v1.0.0 | EncryptedSharedPreferences |
-|-----------------------------|----------------|----------------------------|
-| Get 1 entry                 | **0.39ms**     | 0.50ms (*28% slower*)      |
-| Get 3 entries               | **0.94ms**     | 1.27ms (*35% slower*)      |
-| Get 5 entries               | **1.37ms**     | 2.25ms (*64% slower*)      |
-| Get 10 entries              | **3.29ms**     | 4.07ms (*24% slower*)      |
-| Put 1 entry, then commit    | **0.55ms**     | 1.31ms (*138% slower*)     |
-| Put 3 entries, then commit  | **1.25ms**     | 2.16ms (*73% slower*)      |
-| Put 5 entries, then commit  | **2.33ms**     | 3.32ms (*42% slower*)      |
-| Put 10 entries, then commit | **4.73ms**     | 6.28ms (*33% slower*)      |
-
-Even on **multiple single commits**, SafeBox remains faster:
-
-| Operation                    | SafeBox v1.0.0 | EncryptedSharedPreferences |
-|------------------------------|----------------|----------------------------|
-| Commit 3 single entries      | **1.94ms**     | 4.90ms (*152% slower*)     |
-| Commit 5 single entries      | **2.84ms**     | 6.91ms (*143% slower*)     |
-| Commit 10 single entries     | **5.47ms**     | 11.27ms (*106% slower*)    |
-| Commit 100 single entries    | **33.19ms**    | 71.34ms (*115% slower*)    |
-
-</details>
+The benchmark suite and raw Jetpack measurement JSON are included in the repository. See the [methodology](benchmark/README.md) and [full benchmark results](docs/benchmarks/RESULTS.md), including the comparison with EncryptedSharedPreferences 1.1.0.
 
 ## Contributing
 
@@ -288,6 +170,6 @@ If SafeBox helped secure your app or saved your time, consider sponsoring to sup
 ## License
 
 ```
-MIT License
+Apache License 2.0
 Copyright (c) 2025 Harry Timothy Tumalewa
 ```
