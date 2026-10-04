@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-10-05
+
+### Added
+- **Opt-in failure reporting:** `SafeBox.create()` accepts an optional `FailureListener` that receives `SafeBox.Failure` with the file name, operation and original exception. Callbacks are delivered sequentially on `Dispatchers.IO`, with logcat fallback when delivery cannot complete. ([#180](https://github.com/harrytmthy/safebox/issues/180), [#200](https://github.com/harrytmthy/safebox/issues/200))
+- **Reproducible benchmark suite:** Added a dedicated Jetpack Microbenchmark module with documented methodology and raw measurement JSON for SafeBox and EncryptedSharedPreferences. ([#195](https://github.com/harrytmthy/safebox/issues/195))
+
+### Changed
+- **Storage reclamation:** Reclaims trailing empty pages after removals and clears to reduce backing file size. ([#165](https://github.com/harrytmthy/safebox/issues/165))
+- **Recovery consistency:** Preserves pending recovery data across failed writes and keeps journal retirement separate from values awaiting replay, preventing removed or cleared values from being replayed in the running process. ([#178](https://github.com/harrytmthy/safebox/issues/178))
+- **License alignment:** Aligned the project license and publishing metadata with Apache 2.0. ([#170](https://github.com/harrytmthy/safebox/issues/170))
+- **Build tooling:** Updated the Android and Kotlin toolchain, including AGP 9.3.2, Gradle 9.7.1, Kotlin 2.4.10, Coroutines 1.11.0 and compileSdk 37. ([#168](https://github.com/harrytmthy/safebox/issues/168), [#173](https://github.com/harrytmthy/safebox/issues/173))
+
+### Performance
+- **Faster entry lookup:** Separates logical key lookup from encrypted record identity and reuses entry lookups across memory updates and persistence, reducing repeated HMAC work. ([#196](https://github.com/harrytmthy/safebox/issues/196), [#202](https://github.com/harrytmthy/safebox/issues/202))
+- **Faster commit paths:** Matching-size records are overwritten in place, while multi-entry commits batch disk flushes instead of forcing each mutation separately. ([#189](https://github.com/harrytmthy/safebox/issues/189), [#193](https://github.com/harrytmthy/safebox/issues/193))
+
+### Fixed
+- **Pending `.apply()` writes:** Replacing a debounce job no longer drops pending mutations before persistence. ([#187](https://github.com/harrytmthy/safebox/issues/187))
+
+### Removed
+- **State observation APIs:** Removed `SafeBoxState`, `SafeBoxStateListener`, `SafeBoxGlobalStateObserver` and the `stateListener` creation parameter after their deprecation in 1.3.0. Applications using these APIs must remove those references when upgrading. ([#164](https://github.com/harrytmthy/safebox/issues/164))
+
+### Docs
+- **Observability guide:** Added usage and behavior documentation for `FailureListener`. ([#183](https://github.com/harrytmthy/safebox/issues/183))
+- **Benchmark documentation:** Added reproducible benchmark instructions and published result provenance. ([#205](https://github.com/harrytmthy/safebox/issues/205))
+
 ## [1.4.0-rc01] - 2026-09-22
 
 ### Added
