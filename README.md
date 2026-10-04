@@ -155,6 +155,10 @@ Compared with SafeBox 1.3.0, SafeBox 1.4.0 improves performance across every mea
 | Bulk commits      |      3.73–18.73× |
 | Separate commits  |       1.06–1.31× |
 
+![Read Performance](docs/charts/v1_4_read_performance_chart.png)
+
+![Write Performance](docs/charts/v1_4_write_performance_chart.png)
+
 The benchmark suite and raw Jetpack measurement JSON are included in the repository. See the [methodology](benchmark/README.md) and [full benchmark results](docs/benchmarks/RESULTS.md), including the comparison with EncryptedSharedPreferences 1.1.0.
 
 ## Contributing
