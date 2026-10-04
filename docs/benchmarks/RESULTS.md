@@ -4,8 +4,6 @@ SafeBox 1.4.0 compared with SafeBox 1.3.0 and EncryptedSharedPreferences (ESP) 1
 
 ## Results
 
-Median durations in milliseconds. Ratios above 1× mean shorter durations for SafeBox 1.4.0.
-
 | Workload                | SafeBox 1.4.0 (ms) | SafeBox 1.3.0 (ms) | Speedup vs 1.3.0 | ESP 1.1.0 (ms) | Speedup vs ESP |
 |-------------------------|-------------------:|-------------------:|-----------------:|---------------:|---------------:|
 | Initialization          |           0.131521 |           0.220213 |            1.67× |      35.926736 |        273.16× |
@@ -24,10 +22,14 @@ Median durations in milliseconds. Ratios above 1× mean shorter durations for Sa
 | 50 separate commits     |           8.578093 |           9.813128 |            1.14× |      37.130912 |          4.33× |
 | 100 separate commits    |          16.403891 |          17.339583 |            1.06× |      71.135339 |          4.34× |
 
+Each workload uses 20 warmup executions followed by 50 measured samples. Median durations are shown in milliseconds.
+
+Measurements were collected on a Samsung SM-S928B running Android 16 / API 36 using a non-debuggable release build.
+
 ## Measurement proof
 
-SafeBox 1.4.0 measured commit: `b8e1012d1f822884ed0418356f4aafff198fb64c`. [Jetpack measurement JSON](measurements/safebox-1.4.0/SAFEBOX_1_4_0_MEASUREMENT.json).
+SafeBox 1.4.0: [Jetpack measurement JSON](measurements/safebox-1.4.0/SAFEBOX_1_4_0_MEASUREMENT.json).
 
-SafeBox 1.3.0 uses the published artifact `io.github.harrytmthy:safebox:1.3.0`: [Jetpack measurement JSON](measurements/safebox-1.3.0/SAFEBOX_1_3_0_MEASUREMENT.json).
+SafeBox 1.3.0 uses `io.github.harrytmthy:safebox:1.3.0`: [Jetpack measurement JSON](measurements/safebox-1.3.0/SAFEBOX_1_3_0_MEASUREMENT.json).
 
 ESP uses `androidx.security:security-crypto-ktx:1.1.0`: [Jetpack measurement JSON](measurements/esp-1.1.0/ESP_1_1_0_MEASUREMENT.json).
