@@ -48,5 +48,6 @@ rootProject.name = "safebox-root"
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 include(":app")
+include(":benchmark")
 include(":safebox")
 include(":safebox-crypto")
