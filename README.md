@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/github/license/harrytmthy/safebox?label=license&color=blue&style=flat-square)](https://github.com/harrytmthy/safebox/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/harrytmthy/safebox?include_prereleases&label=release&color=orange&style=flat-square)](https://github.com/harrytmthy/safebox/releases)
 
-A secure, blazing-fast alternative to `EncryptedSharedPreferences`, designed for Android projects which demand both **speed** and **security**.
+An encrypted key-value store for Android, built to outperform and replace Google's deprecated `EncryptedSharedPreferences`.
 
 ## 🚨 EncryptedSharedPreferences is Deprecated
 
